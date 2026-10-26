@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+vendor/
+
+# Build output
+dist/
+build/
+.next/
+out/
+bin/
+*.tsbuildinfo
+coverage/
+
+# CDK
+infra/cdk.out/
+cdk.context.local.json
+
+# Local data (your mail-derived records): never commit
+data/
+
+# Env & secrets: never commit (Rule 1)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+kubeconfig*
+*.tfstate*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,49 @@
+.notice {
+  padding: 32px;
+  max-width: 620px;
+  display: grid;
+  gap: 10px;
+}
+
+.notice h2 {
+  font-size: var(--text-xl);
+}
+
+.notice p {
+  margin: 0;
+}
+
+.code {
+  margin: 4px 0 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-x: auto;
+}
+
+.mailboxes {
+  display: inline-flex;
+  gap: 3px;
+  vertical-align: middle;
+}
+
+.mailbox {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--mb, var(--ink-3));
+  flex: none;
+}
+
+.mailbox[data-provider="yahoo"] { --mb: var(--mb-yahoo); }
+.mailbox[data-provider="outlook"] { --mb: var(--mb-outlook); }
+.mailbox[data-provider="gmail"] { --mb: var(--mb-gmail); }
+.mailbox[data-provider="icloud"] { --mb: var(--mb-icloud); }
