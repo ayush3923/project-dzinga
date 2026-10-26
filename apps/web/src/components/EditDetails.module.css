@@ -1,0 +1,11 @@
+.box { display: grid; gap: 8px; }
+.prompt { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  padding: 10px 14px; border-radius: 12px; background: var(--accent-soft); font-size: var(--text-md); }
+.form { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.field { display: grid; gap: 4px; font-size: var(--text-sm); color: var(--ink-2); }
+.field small { font-size: 12px; }
+.actions { display: flex; gap: 14px; align-items: center; }
+.link { background: none; border: 0; padding: 0; justify-self: start; color: var(--ink-2); text-decoration: underline;
+  text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
+.ok { margin: 0; font-size: 13px; color: var(--ink-2); }
+.error { margin: 0; font-size: 13px; color: var(--accent); }

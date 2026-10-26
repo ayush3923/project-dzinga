@@ -1,0 +1,213 @@
+openapi: 3.1.0
+info:
+  title: Dzinga core-api
+  version: 0.1.0
+  description: |
+    Owns applications, their email events and the user's intent.
+    Prototype: single user, loopback only. Production: every /api route requires a
+    Cognito JWT and is scoped to its subject.
+servers:
+  - url: http://127.0.0.1:8081
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      responses:
+        "200": { description: ok }
+  /api/v1/summary:
+    get:
+      summary: Data for the Today view
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Summary" }
+  /api/v1/applications:
+    get:
+      summary: List applications, newest activity first
+      parameters:
+        - { name: stage, in: query, schema: { $ref: "#/components/schemas/Stage" } }
+        - { name: q, in: query, description: Full-text search (prefix match), schema: { type: string, maxLength: 200 } }
+      responses:
+        "200":
+          description: Applications
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [applications]
+                properties:
+                  applications: { type: array, items: { $ref: "#/components/schemas/Application" } }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/applications/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      summary: One application with its email timeline
+      responses:
+        "200":
+          description: Application
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [application, events]
+                properties:
+                  application: { $ref: "#/components/schemas/Application" }
+                  events: { type: array, items: { $ref: "#/components/schemas/Event" } }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: Manually override the stage ("" clears the override)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stage]
+              additionalProperties: false
+              properties:
+                stage: { oneOf: [{ $ref: "#/components/schemas/Stage" }, { const: "" }] }
+      responses:
+        "204": { description: Updated }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/intent:
+    get:
+      summary: The user's job-search intent (PRD stage 1)
+      responses:
+        "200":
+          description: Intent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Intent" }
+    put:
+      summary: Replace the intent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Intent" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Intent" }
+        "400": { $ref: "#/components/responses/Error" }
+  /internal/v1/events:
+    post:
+      summary: Ingest classified job emails (service-to-service only)
+      security: [{ internalToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              additionalProperties: false
+              properties:
+                events: { type: array, maxItems: 500, items: { $ref: "#/components/schemas/IngestEvent" } }
+      responses:
+        "200":
+          description: Stored (idempotent on message_id)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: integer }
+                  added: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    internalToken: { type: http, scheme: bearer }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+  schemas:
+    Stage:
+      type: string
+      enum: [applied, assessment, interview, offer, rejected]
+    EventKind:
+      type: string
+      enum: [applied, assessment, interview, offer, rejected, update]
+    Application:
+      type: object
+      required: [id, company, role, stage, stage_is_manual, source_account, accounts, applied_at, last_activity_at, event_count]
+      properties:
+        id: { type: integer }
+        company: { type: string }
+        role: { type: string }
+        stage: { $ref: "#/components/schemas/Stage" }
+        stage_is_manual: { type: boolean }
+        source_account: { type: string }
+        accounts: { type: array, items: { type: string }, description: Every mailbox this application's emails came from, sorted }
+        applied_at: { type: string, format: date-time }
+        last_activity_at: { type: string, format: date-time }
+        event_count: { type: integer }
+    Event:
+      type: object
+      required: [id, account, occurred_at, sender, subject, snippet, kind]
+      properties:
+        id: { type: integer }
+        account: { type: string }
+        occurred_at: { type: string, format: date-time }
+        sender: { type: string }
+        subject: { type: string }
+        snippet: { type: string, description: "At most ~400 characters; full bodies are never stored" }
+        kind: { $ref: "#/components/schemas/EventKind" }
+    IngestEvent:
+      type: object
+      required: [message_id, account, occurred_at, company, kind]
+      additionalProperties: false
+      properties:
+        message_id: { type: string }
+        account: { type: string }
+        occurred_at: { type: string, format: date-time }
+        sender: { type: string }
+        subject: { type: string, maxLength: 500 }
+        snippet: { type: string, maxLength: 2000 }
+        company: { type: string, maxLength: 200 }
+        role: { type: string, maxLength: 200 }
+        kind: { $ref: "#/components/schemas/EventKind" }
+    Summary:
+      type: object
+      required: [total, by_stage, needs_nudge, recent_events]
+      properties:
+        total: { type: integer }
+        by_stage:
+          type: object
+          additionalProperties: { type: integer }
+        needs_nudge: { type: array, items: { $ref: "#/components/schemas/Application" } }
+        recent_events:
+          type: array
+          items:
+            allOf:
+              - { $ref: "#/components/schemas/Event" }
+              - type: object
+                properties:
+                  application_id: { type: integer }
+                  company: { type: string }
+                  role: { type: string }
+    Intent:
+      type: object
+      additionalProperties: false
+      properties:
+        roles: { type: array, maxItems: 10, items: { type: string, maxLength: 100 } }
+        designation: { type: string, maxLength: 100 }
+        locations: { type: array, maxItems: 10, items: { type: string, maxLength: 100 } }
+        salary_min: { type: integer, minimum: 0 }
+        salary_max: { type: integer, minimum: 0 }
+        currency: { type: string, enum: [INR, USD] }
+        company_types: { type: array, maxItems: 10, items: { type: string } }
+        situation: { type: string, enum: ["", exploring, immediate, reentry, growth] }
