@@ -334,6 +334,81 @@ CREATE TABLE digests (
 );
 `)
 
+// v9: interview progress the user records on an application (see edit.go)
+var _ = appendMigration(`
+ALTER TABLE applications ADD COLUMN rounds_done INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE applications ADD COLUMN next_step TEXT NOT NULL DEFAULT '';
+`)
+
+// v10: Claude's work queue gains fit scores and the daily quiz (see research.go and
+// quiz.go). SQLite can't change a CHECK constraint, so the queue table is rebuilt.
+var _ = appendMigration(`
+CREATE TABLE research_requests_v10 (
+	id         INTEGER PRIMARY KEY,
+	user_id    TEXT    NOT NULL,
+	kind       TEXT    NOT NULL CHECK (kind IN ('company_profile', 'job_posting', 'fit_score', 'daily_quiz', 'quiz_feedback')),
+	target_id  INTEGER NOT NULL,
+	status     TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done')),
+	created_at TEXT    NOT NULL,
+	done_at    TEXT
+);
+INSERT INTO research_requests_v10 (id, user_id, kind, target_id, status, created_at, done_at)
+	SELECT id, user_id, kind, target_id, status, created_at, done_at FROM research_requests;
+DROP TABLE research_requests;
+ALTER TABLE research_requests_v10 RENAME TO research_requests;
+CREATE UNIQUE INDEX research_requests_one_pending ON research_requests (user_id, kind, target_id) WHERE status = 'pending';
+
+CREATE TABLE quizzes (
+	id         INTEGER PRIMARY KEY,
+	user_id    TEXT NOT NULL,
+	day        TEXT NOT NULL, -- YYYY-MM-DD (IST)
+	model      TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	UNIQUE (user_id, day)
+);
+CREATE TABLE quiz_questions (
+	id           INTEGER PRIMARY KEY,
+	quiz_id      INTEGER NOT NULL REFERENCES quizzes (id) ON DELETE CASCADE,
+	position     INTEGER NOT NULL,
+	kind         TEXT    NOT NULL CHECK (kind IN ('mcq', 'subjective', 'voice')),
+	topic        TEXT    NOT NULL CHECK (topic IN ('ai_news', 'pm_concept', 'org_news')),
+	prompt       TEXT    NOT NULL,
+	options      TEXT    NOT NULL DEFAULT '[]', -- JSON array, MCQ only
+	answer       INTEGER,                       -- MCQ: index of the correct option
+	explanation  TEXT    NOT NULL DEFAULT '',
+	source_title TEXT    NOT NULL DEFAULT '',
+	source_url   TEXT    NOT NULL DEFAULT '',
+	UNIQUE (quiz_id, position)
+);
+CREATE TABLE quiz_answers (
+	question_id INTEGER PRIMARY KEY REFERENCES quiz_questions (id) ON DELETE CASCADE,
+	choice      INTEGER,
+	text        TEXT    NOT NULL DEFAULT '',
+	audio_file  TEXT    NOT NULL DEFAULT '', -- file name in the audio folder, never a path
+	transcript  TEXT    NOT NULL DEFAULT '',
+	feedback    TEXT    NOT NULL DEFAULT '',
+	score       INTEGER,                     -- 0-10, from Claude's feedback
+	answered_at TEXT    NOT NULL,
+	feedback_at TEXT
+);
+`)
+
+// v11: the daily quiz moved to its own service (ADR 0008), with its own database.
+var _ = appendMigration(`
+DELETE FROM research_requests WHERE kind IN ('daily_quiz', 'quiz_feedback');
+DROP TABLE quiz_answers;
+DROP TABLE quiz_questions;
+DROP TABLE quizzes;
+`)
+
+// v12: the profile photo (see photo.go). The image is a file; this records that it exists.
+var _ = appendMigration(`
+CREATE TABLE profile_photos (
+	user_id    TEXT PRIMARY KEY,
+	updated_at TEXT NOT NULL
+);
+`)
+
 // Migrations are listed here, in order, and nowhere else: Go initialises files
 // alphabetically, so a migration declared in another file could run out of order.
 

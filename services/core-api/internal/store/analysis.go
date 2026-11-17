@@ -230,6 +230,9 @@ func (s *Store) Analysis(ctx context.Context, userID string, now time.Time) (Ana
 
 // nextMove suggests one concrete action from the stage and how long it has sat there.
 func nextMove(a AppAnalysis, typicalResponse float64) NextMove {
+	if a.NextStep != "" && a.Stage != "rejected" {
+		return NextMove{a.NextStep, "The next step you recorded for this application.", true}
+	}
 	d := a.DaysInStage
 	switch a.Stage {
 	case "applied":
@@ -403,6 +406,8 @@ type AppDetail struct {
 	JobLinks []string        `json:"job_links"` // links found in the application's emails
 	// When the user queued a posting search for Claude in the app (nil when not queued).
 	ResearchRequestedAt *time.Time `json:"research_requested_at"`
+	// When an Opus fit score was queued for Claude (nil when not queued).
+	FitRequestedAt *time.Time `json:"fit_requested_at"`
 }
 
 var ErrBadContact = errors.New("contact does not belong to this application")
@@ -420,6 +425,9 @@ func (s *Store) Detail(ctx context.Context, userID string, appID int64) (AppDeta
 	}
 	var err error
 	if d.ResearchRequestedAt, err = s.researchRequestedAt(ctx, userID, "job_posting", appID); err != nil {
+		return d, err
+	}
+	if d.FitRequestedAt, err = s.researchRequestedAt(ctx, userID, "fit_score", appID); err != nil {
 		return d, err
 	}
 
@@ -700,6 +708,9 @@ func (s *Store) SaveFit(ctx context.Context, userID string, appID int64, f Fit, 
 	}
 	defer tx.Rollback()
 	if err := ownsApp(ctx, tx, userID, appID); err != nil {
+		return err
+	}
+	if err := markResearchDone(ctx, tx, userID, "fit_score", appID, now); err != nil {
 		return err
 	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO fit_scores (user_id, application_id, total, verdict, model, pipeline, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,

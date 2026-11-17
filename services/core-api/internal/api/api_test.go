@@ -188,6 +188,25 @@ func TestManualStageOverride(t *testing.T) {
 	}
 }
 
+func TestPatchInterviewProgress(t *testing.T) {
+	ts, _ := newServer(t, "owner")
+	ingest(t, ts, ev("a", "Acme", "SRE", "interview", now))
+	res := do(t, "PATCH", ts.URL+"/api/v1/applications/1", "", map[string]any{"rounds_done": 1, "next_step": "Round 2 interview"})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("patch: %d", res.StatusCode)
+	}
+	app := decodeBody[struct{ Application store.Application }](t,
+		do(t, "GET", ts.URL+"/api/v1/applications/1", "", nil)).Application
+	if app.RoundsDone != 1 || app.NextStep != "Round 2 interview" {
+		t.Errorf("got %+v", app)
+	}
+	for _, bad := range []map[string]any{{"rounds_done": -1}, {"rounds_done": 21}, {"next_step": "a\nb"}} {
+		if res := do(t, "PATCH", ts.URL+"/api/v1/applications/1", "", bad); res.StatusCode != 400 {
+			t.Errorf("%v accepted: %d", bad, res.StatusCode)
+		}
+	}
+}
+
 func TestIntentRoundTripAndValidation(t *testing.T) {
 	ts, _ := newServer(t, "owner")
 	in := store.Intent{Roles: []string{"Product Manager"}, Locations: []string{"Bengaluru"},

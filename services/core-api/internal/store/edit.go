@@ -5,16 +5,21 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"unicode"
 )
 
 // ApplicationEdit holds the fields a user can correct; nil leaves a field unchanged.
 type ApplicationEdit struct {
-	Company *string `json:"company"`
-	Role    *string `json:"role"`
-	JobURL  *string `json:"job_url"` // "" removes the link
+	Company    *string `json:"company"`
+	Role       *string `json:"role"`
+	JobURL     *string `json:"job_url"` // "" removes the link
+	RoundsDone *int    `json:"rounds_done"`
+	NextStep   *string `json:"next_step"` // "" removes it
 }
 
-func (e ApplicationEdit) Empty() bool { return e.Company == nil && e.Role == nil && e.JobURL == nil }
+func (e ApplicationEdit) Empty() bool {
+	return e.Company == nil && e.Role == nil && e.JobURL == nil && e.RoundsDone == nil && e.NextStep == nil
+}
 
 // ValidJobURL accepts public https links only.
 func ValidJobURL(u string) error {
@@ -42,6 +47,15 @@ func (e ApplicationEdit) Validate() error {
 	}
 	if e.Role != nil && len(strings.TrimSpace(*e.Role)) > 200 {
 		return errors.New("the role is too long")
+	}
+	if e.RoundsDone != nil && (*e.RoundsDone < 0 || *e.RoundsDone > 20) {
+		return errors.New("rounds done must be between 0 and 20")
+	}
+	if e.NextStep != nil {
+		n := strings.TrimSpace(*e.NextStep)
+		if len(n) > 120 || strings.ContainsFunc(n, unicode.IsControl) {
+			return errors.New("the next step must be one line of at most 120 characters")
+		}
 	}
 	if e.JobURL != nil {
 		return ValidJobURL(strings.TrimSpace(*e.JobURL))
@@ -92,8 +106,11 @@ func (s *Store) EditApplication(ctx context.Context, userID string, id int64, e 
 					return 0, err
 				}
 			}
-			if _, err := tx.ExecContext(ctx, `UPDATE applications SET job_url = CASE WHEN job_url = '' THEN
-				(SELECT job_url FROM applications WHERE id = ?) ELSE job_url END WHERE id = ?`, id, other); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE applications SET
+				job_url = CASE WHEN job_url = '' THEN (SELECT job_url FROM applications WHERE id = ?) ELSE job_url END,
+				next_step = CASE WHEN next_step = '' THEN (SELECT next_step FROM applications WHERE id = ?) ELSE next_step END,
+				rounds_done = MAX(rounds_done, (SELECT rounds_done FROM applications WHERE id = ?))
+				WHERE id = ?`, id, id, id, other); err != nil {
 				return 0, err
 			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM applications WHERE id = ?`, id); err != nil {
@@ -118,6 +135,16 @@ func (s *Store) EditApplication(ctx context.Context, userID string, id int64, e 
 	}
 	if e.JobURL != nil {
 		if _, err := tx.ExecContext(ctx, `UPDATE applications SET job_url = ? WHERE id = ?`, strings.TrimSpace(*e.JobURL), target); err != nil {
+			return 0, err
+		}
+	}
+	if e.RoundsDone != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE applications SET rounds_done = ? WHERE id = ?`, *e.RoundsDone, target); err != nil {
+			return 0, err
+		}
+	}
+	if e.NextStep != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE applications SET next_step = ? WHERE id = ?`, strings.TrimSpace(*e.NextStep), target); err != nil {
 			return 0, err
 		}
 	}

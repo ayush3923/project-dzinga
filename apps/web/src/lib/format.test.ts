@@ -1,7 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { brief, daysBetween, initials, isStage, parsePipeline, providerOf, relativeDays } from "./format";
+import { brief, daysBetween, initials, isStage, parsePipeline, providerOf, refreshStamp, relativeDays, roundsLabel } from "./format";
 
 const zero = { applied: 0, assessment: 0, interview: 0, offer: 0, rejected: 0 };
+
+describe("refreshStamp", () => {
+  it("formats as DD MM YY (HH:MM) in 24-hour time", () => {
+    expect(refreshStamp("2026-11-17T05:39:00Z", "Asia/Kolkata")).toBe("17 11 26 (11:09)");
+    expect(refreshStamp("2026-01-02T18:05:00Z", "Asia/Kolkata")).toBe("02 01 26 (23:35)");
+  });
+  it("says never without a valid time", () => {
+    expect(refreshStamp(null)).toBe("never");
+    expect(refreshStamp("not a date")).toBe("never");
+  });
+});
+
+describe("roundsLabel", () => {
+  it("shows rounds done and what is next", () => {
+    expect(roundsLabel(1, "Round 2 interview", "interview")).toBe("1 round done · Next: Round 2 interview");
+    expect(roundsLabel(2, "", "interview")).toBe("2 rounds done");
+    expect(roundsLabel(0, "HR call", "applied")).toBe("Next: HR call");
+  });
+  it("is empty with nothing recorded, and drops the next step once rejected", () => {
+    expect(roundsLabel(0, "", "interview")).toBe("");
+    expect(roundsLabel(3, "Round 4", "rejected")).toBe("3 rounds done");
+  });
+});
 
 describe("brief", () => {
   it("says nothing needs attention when the pipeline is empty", () => {

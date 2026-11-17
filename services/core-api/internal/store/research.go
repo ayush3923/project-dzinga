@@ -7,12 +7,16 @@ import (
 	"time"
 )
 
-// Research requests: web research (finding a job posting, building a company
-// profile) is done by Claude in the Claude app, not through the API. The web app
-// queues a request; the user asks Claude in the app to work through the queue,
-// and saving the result marks the request done.
+// Research requests: Claude's work queue. Web research (finding a job posting,
+// building a company profile) and Opus fit scores are done by Claude in the Claude
+// app, not through the API. The web app or a refresh queues a request; a scheduled
+// Claude task works through the queue (see docs/runbooks/claude-queue.md), and
+// saving the result marks the request done. The daily quiz lives in the quiz
+// service (ADR 0008).
+//
+// Targets: an organization (company_profile) or an application (job_posting, fit_score).
 
-var ErrBadKind = errors.New("kind must be company_profile or job_posting")
+var ErrBadKind = errors.New("kind must be company_profile, job_posting or fit_score")
 
 type ResearchRequest struct {
 	ID        int64     `json:"id"`
@@ -33,7 +37,7 @@ func (s *Store) RequestResearch(ctx context.Context, userID, kind string, target
 	switch kind {
 	case "company_profile":
 		err = ownsOrg(ctx, tx, userID, targetID)
-	case "job_posting":
+	case "job_posting", "fit_score":
 		err = ownsApp(ctx, tx, userID, targetID)
 	default:
 		return time.Time{}, ErrBadKind
@@ -61,7 +65,7 @@ func (s *Store) PendingResearch(ctx context.Context, userID string) ([]ResearchR
 			COALESCE(o.name, a.company || CASE WHEN a.role <> '' THEN ' — ' || a.role ELSE '' END, ''), COALESCE(a.job_url, '')
 		FROM research_requests r
 		LEFT JOIN organizations o ON r.kind = 'company_profile' AND o.id = r.target_id
-		LEFT JOIN applications a ON r.kind = 'job_posting' AND a.id = r.target_id
+		LEFT JOIN applications a ON r.kind IN ('job_posting', 'fit_score') AND a.id = r.target_id
 		WHERE r.user_id = ? AND r.status = 'pending' ORDER BY r.created_at, r.id`, userID,
 		func(rows *sql.Rows) error {
 			var r ResearchRequest
@@ -89,6 +93,58 @@ func (s *Store) researchRequestedAt(ctx context.Context, userID, kind string, ta
 	}
 	at, _ := time.Parse(time.RFC3339, created)
 	return &at, nil
+}
+
+// maxFitsPerRefresh caps how many fit scores one refresh can queue.
+const maxFitsPerRefresh = 20
+
+// queueAfterRefresh queues an Opus fit score for each new open application without
+// one. (The sync service then asks the quiz service for today's quiz.)
+// prev is the previous refresh time; on the very first refresh no fit scores are
+// queued, so a new mailbox doesn't flood the queue with its whole history.
+func (s *Store) queueAfterRefresh(ctx context.Context, userID, prev string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if prev != "" {
+		var ids []int64
+		rows, err := tx.QueryContext(ctx, `SELECT a.id FROM applications a
+			WHERE a.user_id = ? AND (SELECT MIN(`+arrived+`) FROM events e WHERE e.application_id = a.id) > ?
+			  AND EXISTS (SELECT 1 FROM events e WHERE e.application_id = a.id AND e.kind = 'applied')
+			  AND COALESCE(a.stage_override, a.stage) <> 'rejected'
+			  AND NOT EXISTS (SELECT 1 FROM fit_scores f WHERE f.application_id = a.id)
+			ORDER BY a.applied_at DESC LIMIT ?`, userID, prev, maxFitsPerRefresh)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if err := queue(ctx, tx, userID, "fit_score", id, now); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+// queue adds a pending request inside a transaction (once per kind and target).
+func queue(ctx context.Context, tx *sql.Tx, userID, kind string, targetID int64, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO research_requests (user_id, kind, target_id, created_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT DO NOTHING`, userID, kind, targetID, now.UTC().Format(time.RFC3339))
+	return err
 }
 
 func markResearchDone(ctx context.Context, tx *sql.Tx, userID, kind string, targetID int64, now time.Time) error {

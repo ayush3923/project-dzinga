@@ -32,8 +32,26 @@ export function relativeDays(iso: string, now: Date): string {
   return `${Math.floor(d / 365)} yr ago`;
 }
 
+/** The header's last-refresh stamp, DD MM YY (HH:MM): "17 11 26 (11:09)". */
+export function refreshStamp(iso: string | null, timeZone?: string): string {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return "never";
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone,
+  }).formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.day} ${p.month} ${p.year} (${p.hour}:${p.minute})`;
+}
+
 export function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** The interview-progress label on an application: "1 round done · Next: Round 2 interview". */
+export function roundsLabel(rounds: number, next: string, stage: string): string {
+  const parts: string[] = [];
+  if (rounds > 0) parts.push(`${rounds} ${rounds === 1 ? "round" : "rounds"} done`);
+  if (next && stage !== "rejected") parts.push(`Next: ${next}`);
+  return parts.join(" · ");
 }
 
 export function greeting(now: Date): string {
