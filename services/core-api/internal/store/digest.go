@@ -90,6 +90,9 @@ func (s *Store) RecordRefresh(ctx context.Context, userID string, now time.Time)
 	if err != nil {
 		return 0, err
 	}
+	if err := s.queueAfterRefresh(ctx, userID, prev, now); err != nil {
+		return 0, err
+	}
 	return res.LastInsertId()
 }
 

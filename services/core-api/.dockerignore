@@ -1,0 +1,11 @@
+.git
+.env*
+*.db
+*.db-*
+data/
+bin/
+coverage/
+testdata/
+*_test.go
+Dockerfile
+.dockerignore

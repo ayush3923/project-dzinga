@@ -24,6 +24,7 @@ type Server struct {
 	InternalToken string // shared secret for service-to-service calls (ingest → core-api)
 	UserID        string // prototype: single local user; replaced by Cognito identity later
 	Now           func() time.Time
+	PhotoDir      string // the profile photo; local disk only (see photo.go)
 }
 
 func (s *Server) Handler() http.Handler {
@@ -45,6 +46,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/organizations/{id}/research", s.requestResearch("company_profile"))
 	mux.HandleFunc("POST /api/v1/applications/{id}/research", s.requestResearch("job_posting"))
 	mux.Handle("GET /internal/v1/research-requests", s.requireInternal(http.HandlerFunc(s.pendingResearch)))
+	mux.HandleFunc("POST /api/v1/applications/{id}/fit-request", s.requestResearch("fit_score"))
 	mux.Handle("PUT /internal/v1/organizations/{id}/profile", s.requireInternal(http.HandlerFunc(s.putCompanyProfile)))
 	mux.Handle("POST /internal/v1/organizations/{id}/diagnosis", s.requireInternal(http.HandlerFunc(s.postDiagnosis)))
 	mux.HandleFunc("GET /api/v1/mailboxes", s.mailboxes)
@@ -56,6 +58,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /internal/v1/maintenance", s.requireInternal(http.HandlerFunc(s.maintenance)))
 	mux.HandleFunc("GET /api/v1/profile", s.getProfile)
 	mux.HandleFunc("PUT /api/v1/profile", s.putProfile)
+	mux.HandleFunc("PUT /api/v1/profile/photo", s.putPhoto)
+	mux.HandleFunc("GET /api/v1/profile/photo", s.getPhoto)
+	mux.HandleFunc("DELETE /api/v1/profile/photo", s.deletePhoto)
 	mux.Handle("POST /internal/v1/events", s.requireInternal(http.HandlerFunc(s.ingest)))
 	mux.Handle("PUT /internal/v1/applications/{id}/posting", s.requireInternal(http.HandlerFunc(s.putPosting)))
 	mux.Handle("POST /internal/v1/applications/{id}/fit", s.requireInternal(http.HandlerFunc(s.postFit)))
@@ -311,6 +316,9 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getProfile(w http.ResponseWriter, r *http.Request) {
 	p, err := s.Store.GetProfile(r.Context(), s.UserID)
+	if err == nil {
+		p.PhotoUpdatedAt, err = s.Store.PhotoUpdatedAt(r.Context(), s.UserID)
+	}
 	if err != nil {
 		s.internalErr(w, r, err)
 		return

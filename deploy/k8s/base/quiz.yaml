@@ -1,0 +1,101 @@
+# The quiz service (ADR 0008): its own SQLite database and recordings on its own volume.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quiz
+automountServiceAccountToken: false
+---
+# local-path deletes the data when this claim is deleted: never run `kubectl delete -k`
+# against this namespace without a fresh snapshot (deploy/README.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: quiz-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi # quizzes and recorded answers (8 MB each at most)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quiz
+spec:
+  type: ClusterIP
+  selector:
+    app: quiz
+  ports:
+    - { name: http, port: 8084, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quiz
+spec:
+  replicas: 1 # SQLite allows one writer, and the volume lives on one node
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: quiz
+  template:
+    metadata:
+      labels:
+        app: quiz
+    spec:
+      serviceAccountName: quiz
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # The on-demand server node: on a spot node, the data would go when the node does.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: quiz
+          image: dzinga/quiz:unset
+          ports:
+            - { name: http, containerPort: 8084 }
+          env:
+            - { name: DZ_QUIZ_ADDR, value: "0.0.0.0:8084" }
+            - { name: DZ_QUIZ_DB_PATH, value: /data/quiz.db }
+            - { name: DZ_AUDIO_DIR, value: /data/quiz-audio }
+            - name: DZ_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef: { name: dzinga-internal, key: internal-token }
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 128Mi } # uploads are read into memory: 8 MB at most
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: quiz-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

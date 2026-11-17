@@ -19,6 +19,8 @@ export interface Application {
   event_count: number;
   organization_id: number;
   job_url: string;
+  rounds_done: number;
+  next_step: string;
 }
 
 export interface MailEvent {
@@ -65,23 +67,69 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
+const QUIZ_BASE = process.env.QUIZ_API_URL ?? "http://127.0.0.1:8084";
+
+function call<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(BASE, "core-api", path, init);
+}
+
+/** The quiz service (ADR 0008). */
+function quizCall<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(QUIZ_BASE, "The quiz service", path, init);
+}
+
+async function request<T>(base: string, name: string, path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(BASE + path, {
+    res = await fetch(base + path, {
       ...init,
       cache: "no-store",
       headers: { "Content-Type": "application/json", ...init?.headers },
       signal: AbortSignal.timeout(5000),
+      ...(init?.signal ? { signal: init.signal } : {}),
     });
   } catch {
-    throw new ApiError(503, "core-api is not reachable");
+    throw new ApiError(503, `${name} is not reachable`);
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(res.status, body.error ?? res.statusText);
   }
   return res.status === 204 ? (undefined as T) : res.json();
+}
+
+export type QuizKind = "mcq" | "subjective" | "voice";
+export type QuizTopic = "ai_news" | "pm_concept" | "org_news";
+
+export interface QuizQuestion {
+  id: number;
+  position: number;
+  kind: QuizKind;
+  topic: QuizTopic;
+  prompt: string;
+  options: string[];
+  answer: number | null; // MCQ: shown once answered
+  explanation: string;
+  source_title: string;
+  source_url: string;
+  response: {
+    choice: number | null;
+    text: string;
+    audio_file: string;
+    transcript: string;
+    feedback: string;
+    score: number | null;
+    correct: boolean | null;
+    answered_at: string;
+    feedback_at: string | null;
+  } | null;
+}
+
+export interface QuizPage {
+  day: string;
+  quiz: { day: string; model: string; created_at: string; questions: QuizQuestion[] } | null;
+  queued_at: string | null;
+  history: { day: string; answered: number; correct: number; total: number }[];
 }
 
 export interface TimelineStep {
@@ -176,6 +224,7 @@ export interface AppDetail {
   }[];
   job_links: string[];
   research_requested_at: string | null;
+  fit_requested_at: string | null;
 }
 
 export interface Experience {
@@ -198,6 +247,31 @@ export interface Profile {
   skills: string[];
   experiences: Experience[];
   updated_at: string | null;
+  photo_updated_at?: string | null; // read-only: set by the photo endpoints
+}
+
+export interface QuizStats {
+  quizzes_taken: number;
+  mcq_answered: number;
+  mcq_correct: number;
+  accuracy: number | null;
+  accuracy_7d: number | null;
+  written_avg: number | null;
+  spoken_avg: number | null;
+  streak: number;
+  feedback_queued: number;
+  days: { day: string; answered: number; correct: number; total: number }[];
+  last_answered_at: string | null;
+}
+
+export interface NewsItem {
+  topic: "ai_news" | "org_news";
+  company: string;
+  title: string;
+  summary: string;
+  source_title: string;
+  url: string;
+  published_on: string;
 }
 
 export interface OrgSummary {
@@ -360,7 +434,7 @@ export const api = {
   },
   application: (id: number) =>
     call<{ application: Application; events: MailEvent[] }>(`/api/v1/applications/${id}`),
-  editApplication: (id: number, fields: { company?: string; role?: string; job_url?: string }) =>
+  editApplication: (id: number, fields: { company?: string; role?: string; job_url?: string; rounds_done?: number; next_step?: string }) =>
     call<{ id: number }>(`/api/v1/applications/${id}`, { method: "PATCH", body: JSON.stringify(fields) }),
   setStage: (id: number, stage: Stage | "") =>
     call<void>(`/api/v1/applications/${id}`, { method: "PATCH", body: JSON.stringify({ stage }) }),
@@ -388,6 +462,32 @@ export const api = {
     call<OrgsReport>("/api/v1/organizations/preferred", { method: "PUT", body: JSON.stringify({ names, auto }) }),
   requestResearch: (kind: "organizations" | "applications", id: number) =>
     call<{ research_requested_at: string }>(`/api/v1/${kind}/${id}/research`, { method: "POST" }),
+  requestFit: (id: number) =>
+    call<{ research_requested_at: string }>(`/api/v1/applications/${id}/fit-request`, { method: "POST" }),
+  quizStats: () => quizCall<QuizStats>("/api/v1/stats"),
+  news: () => quizCall<{ day: string; items: NewsItem[] }>("/api/v1/news"),
+  uploadPhoto: (photo: Blob) =>
+    call<Profile>("/api/v1/profile/photo", {
+      method: "PUT", body: photo, headers: { "Content-Type": photo.type }, signal: AbortSignal.timeout(20000),
+    }),
+  deletePhoto: () => call<void>("/api/v1/profile/photo", { method: "DELETE" }),
+  photo: async (): Promise<Response> => {
+    const res = await fetch(`${BASE}/api/v1/profile/photo`, { cache: "no-store", signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new ApiError(res.status, "no photo");
+    return res;
+  },
+  quiz: (day?: string) => quizCall<QuizPage>(`/api/v1/quiz${day ? `?day=${encodeURIComponent(day)}` : ""}`),
+  answerQuestion: (id: number, body: { choice?: number; text?: string }) =>
+    quizCall<QuizQuestion>(`/api/v1/quiz/questions/${id}/answer`, { method: "POST", body: JSON.stringify(body) }),
+  uploadVoice: (id: number, audio: Blob) =>
+    quizCall<QuizQuestion>(`/api/v1/quiz/questions/${id}/voice`, {
+      method: "PUT", body: audio, headers: { "Content-Type": audio.type }, signal: AbortSignal.timeout(30000),
+    }),
+  voice: async (id: number): Promise<Response> => {
+    const res = await fetch(`${QUIZ_BASE}/api/v1/quiz/questions/${id}/voice`, { cache: "no-store", signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new ApiError(res.status, "recording not found");
+    return res;
+  },
   runDiagnosis: (id: number) => agentCall<unknown>(`/v1/organizations/${id}/diagnosis`),
   runFit: (id: number) => agentCall<unknown>(`/v1/applications/${id}/fit`),
   runOutreach: (id: number, contactId: number | null) =>

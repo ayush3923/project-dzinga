@@ -58,21 +58,40 @@ paths:
                   events: { type: array, items: { $ref: "#/components/schemas/Event" } }
         "404": { $ref: "#/components/responses/Error" }
     patch:
-      summary: Manually override the stage ("" clears the override)
+      summary: Correct an application's stage ("" clears the override), details or interview progress
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [stage]
-              additionalProperties: false
               properties:
                 stage: { oneOf: [{ $ref: "#/components/schemas/Stage" }, { const: "" }] }
+                company: { type: string, maxLength: 120 }
+                role: { type: string, maxLength: 200 }
+                job_url: { type: string }
+                rounds_done: { type: integer, minimum: 0, maximum: 20 }
+                next_step: { type: string, maxLength: 120 }
       responses:
+        "200": { description: Updated; returns the application's id, which changes if it was merged }
         "204": { description: Updated }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/profile/photo:
+    put:
+      summary: Upload the profile photo (JPEG or PNG, at most 5 MB and 4096 px). Re-encoded as a 512 px JPEG without metadata.
+      responses:
+        "200": { description: The profile, with photo_updated_at }
+        "413": { description: Too large }
+        "415": { description: Not a JPEG or PNG }
+    get:
+      summary: The profile photo (image/jpeg)
+      responses:
+        "404": { description: No photo }
+    delete:
+      summary: Remove the profile photo
+      responses:
+        "204": { description: Removed }
   /api/v1/intent:
     get:
       summary: The user's job-search intent (PRD stage 1)
@@ -96,6 +115,16 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Intent" }
         "400": { $ref: "#/components/responses/Error" }
+  /api/v1/applications/{id}/fit-request:
+    post:
+      summary: Queue an Opus fit score for Claude's next run (ADR 0007)
+      responses:
+        "202": { description: Queued; returns research_requested_at }
+        "404": { description: No such application }
+  /internal/v1/research-requests:
+    get:
+      summary: Claude's pending work, oldest first
+      security: [{ internalToken: [] }]
   /internal/v1/events:
     post:
       summary: Ingest classified job emails (service-to-service only)
@@ -155,6 +184,8 @@ components:
         applied_at: { type: string, format: date-time }
         last_activity_at: { type: string, format: date-time }
         event_count: { type: integer }
+        rounds_done: { type: integer, minimum: 0, maximum: 20, description: Interview rounds completed, set by the user }
+        next_step: { type: string, maxLength: 120, description: What comes next, set by the user }
     Event:
       type: object
       required: [id, account, occurred_at, sender, subject, snippet, kind]

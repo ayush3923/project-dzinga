@@ -3,7 +3,7 @@
 // Server Functions are public HTTP endpoints, so every input is re-validated here even
 // though the UI only sends valid values.
 import { refresh } from "next/cache";
-import { ApiError, api, type Experience, type Intent, type Lookback, type Profile, type Situation, type SyncRun } from "@/lib/api";
+import { ApiError, api, type Experience, type Intent, type Lookback, type Profile, type QuizQuestion, type Situation, type SyncRun } from "@/lib/api";
 import { isStage } from "@/lib/format";
 
 export async function setStageAction(id: number, stage: string): Promise<{ error?: string }> {
@@ -282,6 +282,23 @@ export async function saveSyncSettingsAction(lookback: unknown, sinceDate: unkno
 }
 
 /** Saves corrections to an application. Returns its id, which changes if it was merged. */
+export async function saveRoundsAction(id: unknown, rounds: unknown, next: unknown): Promise<{ error?: string }> {
+  if (!validId(id)) return { error: "Invalid application." };
+  if (typeof rounds !== "number" || !Number.isInteger(rounds) || rounds < 0 || rounds > 20) {
+    return { error: "Rounds done must be between 0 and 20." };
+  }
+  if (typeof next !== "string" || next.length > 120 || /\p{Cc}/u.test(next)) {
+    return { error: "Keep the next step to one line of at most 120 characters." };
+  }
+  try {
+    await api.editApplication(id, { rounds_done: rounds, next_step: next.trim() });
+  } catch (e) {
+    return { error: message(e, "Couldn’t save the changes.") };
+  }
+  refresh();
+  return {};
+}
+
 export async function editApplicationAction(
   id: unknown, company: unknown, role: unknown, jobUrl: unknown,
 ): Promise<{ id?: number; error?: string }> {
@@ -302,4 +319,74 @@ export async function editApplicationAction(
   } catch (e) {
     return { error: message(e, "Couldn’t save the changes.") };
   }
+}
+
+/** Queues an Opus fit score for Claude's next run (see docs/runbooks/claude-queue.md). */
+export async function requestFitAction(id: unknown): Promise<{ error?: string }> {
+  if (!validId(id)) return { error: "Invalid application." };
+  try {
+    await api.requestFit(id);
+  } catch (e) {
+    return { error: message(e, "Couldn’t queue the fit score.") };
+  }
+  refresh();
+  return {};
+}
+
+/** Answers a quiz question: an option for an MCQ, or text for the written question. */
+export async function answerQuizAction(id: unknown, answer: unknown): Promise<{ question?: QuizQuestion; error?: string }> {
+  if (!validId(id)) return { error: "Invalid question." };
+  let body: { choice?: number; text?: string };
+  if (typeof answer === "number" && Number.isInteger(answer) && answer >= 0 && answer < 10) body = { choice: answer };
+  else if (typeof answer === "string" && answer.trim() !== "" && answer.length <= 4000) body = { text: answer.trim() };
+  else return { error: "Write an answer of at most 4,000 characters." };
+  try {
+    const question = await api.answerQuestion(id, body);
+    refresh();
+    return { question };
+  } catch (e) {
+    return { error: message(e, "Couldn’t save the answer.") };
+  }
+}
+
+const AUDIO_TYPES = /^audio\/(webm|ogg|mp4|x-m4a)(;.*)?$/;
+
+/** Saves a recorded answer to the voice question. core-api checks the file's contents. */
+export async function uploadVoiceAction(form: FormData): Promise<{ question?: QuizQuestion; error?: string }> {
+  const id = Number(form.get("id"));
+  const audio = form.get("audio");
+  if (!validId(id)) return { error: "Invalid question." };
+  if (!(audio instanceof Blob) || !AUDIO_TYPES.test(audio.type)) return { error: "This browser’s recording format isn’t supported." };
+  if (audio.size > 8 * 1024 * 1024) return { error: "The recording is too long. Keep it under about four minutes." };
+  try {
+    const question = await api.uploadVoice(id, audio);
+    refresh();
+    return { question };
+  } catch (e) {
+    return { error: message(e, "Couldn’t save the recording.") };
+  }
+}
+
+/** Saves the profile photo. The browser has already shrunk it; core-api re-encodes it and drops its metadata. */
+export async function uploadPhotoAction(form: FormData): Promise<{ error?: string }> {
+  const photo = form.get("photo");
+  if (!(photo instanceof Blob) || !/^image\/(jpeg|png)$/.test(photo.type)) return { error: "Choose a JPEG or PNG photo." };
+  if (photo.size > 5 * 1024 * 1024) return { error: "The photo is too large (5 MB at most)." };
+  try {
+    await api.uploadPhoto(photo);
+  } catch (e) {
+    return { error: message(e, "Couldn’t save the photo.") };
+  }
+  refresh();
+  return {};
+}
+
+export async function deletePhotoAction(): Promise<{ error?: string }> {
+  try {
+    await api.deletePhoto();
+  } catch (e) {
+    return { error: message(e, "Couldn’t remove the photo.") };
+  }
+  refresh();
+  return {};
 }

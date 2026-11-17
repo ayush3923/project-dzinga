@@ -1,7 +1,8 @@
-.box { display: grid; gap: 4px; padding: 0 6px; }
-/* NRDS secondary button, full width in the side nav. */
+.box { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 12px; }
+.meta { margin: 0; font-size: var(--text-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* NRDS secondary button. */
 .btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong);
   background: var(--surface-2); font-size: var(--text-sm); font-weight: 500; cursor: pointer;
 }
@@ -9,12 +10,9 @@
 .btn:disabled { opacity: 0.55; cursor: default; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.meta { margin: 0; font-size: 12px; color: var(--ink-3); padding-left: 4px; }
-.error { margin: 0; font-size: 12px; color: var(--accent); padding-left: 4px; }
-.link { font-size: 12px; color: var(--ink-3); padding-left: 4px; text-decoration: underline; text-underline-offset: 3px; }
+.error { font-size: var(--text-sm); color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.alert { margin: 0; flex-basis: 100%; text-align: right; font-size: var(--text-sm); color: var(--accent); }
 @media (max-width: 820px) {
-  .box { margin-left: auto; padding: 0; }
-  .meta, .link, .error { display: none; }
   .label { display: none; }
-  .btn { padding: 8px; }
+  .btn { padding: 0 8px; }
 }

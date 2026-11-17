@@ -4,19 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { refreshAfterSyncAction, startSyncAction, syncStatusAction, type SyncSummary } from "@/app/actions";
+import { refreshStamp } from "@/lib/format";
 import styles from "./SyncButton.module.css";
 
-function ago(iso: string | null): string {
-  if (!iso) return "never";
-  const mins = Math.floor((Date.now() - Date.parse(iso)) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
-  const h = Math.floor(mins / 60);
-  if (h < 24) return `${h} h ago`;
-  return `${Math.floor(h / 24)} d ago`;
-}
-
-/** Sync now, on every page: scans the selected mailboxes and refreshes the app. */
+/** Top right of every page: when the app last refreshed, and a button that scans the selected mailboxes and refreshes every page. */
 export function SyncButton() {
   const router = useRouter();
   const [s, setS] = useState<SyncSummary | null>(null);
@@ -60,29 +51,32 @@ export function SyncButton() {
       }
     });
 
+  const status = running && current >= 0
+    ? `Scanning ${boxes[current].address.split("@")[0]}… ${current + 1} of ${total}`
+    : running
+      ? "Refreshing…"
+      : s?.error && !s.run
+        ? s.error
+        : `Last refresh ${refreshStamp(s?.lastSyncedAt ?? null)}`;
+
   return (
     <div className={styles.box}>
+      <p className={styles.meta} aria-live="polite">{s ? status : "\u00a0"}</p>
+      {lastRunErrors > 0 && (
+        <Link href="/profile#mailboxes" className={styles.error}>
+          {lastRunErrors} mailbox{lastRunErrors > 1 ? "es" : ""} failed
+        </Link>
+      )}
       <button type="button" className={styles.btn} onClick={sync} disabled={pending || running || !s || s.selected === 0}
-        title={s && s.selected === 0 ? "Connect and select a mailbox in Profile first" : "Scan your selected mailboxes"}>
+        aria-label="Refresh"
+        title={s && s.selected === 0 ? "Connect and select a mailbox in Profile first" : `Refresh: scan ${s?.selected ?? 0} of ${s?.connected ?? 0} mailboxes`}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
           strokeLinejoin="round" aria-hidden="true" className={running ? styles.spin : undefined}>
           <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
         </svg>
-        <span className={styles.label}>{running ? "Syncing…" : "Sync now"}</span>
+        <span className={styles.label}>Refresh</span>
       </button>
-      <p className={styles.meta} aria-live="polite">
-        {running && current >= 0
-          ? `Scanning ${boxes[current].address.split("@")[0]}… ${current + 1} of ${total}`
-          : s?.error && !s.run
-            ? s.error
-            : lastRunErrors > 0
-              ? `${lastRunErrors} mailbox${lastRunErrors > 1 ? "es" : ""} failed`
-              : `Synced ${ago(s?.lastSyncedAt ?? null)}`}
-      </p>
-      {error && <p role="alert" className={styles.error}>{error}</p>}
-      <Link href="/profile#mailboxes" className={styles.link}>
-        {s ? `${s.selected} of ${s.connected} mailboxes` : "Mailboxes"}
-      </Link>
+      {error && <p role="alert" className={styles.alert}>{error}</p>}
     </div>
   );
 }

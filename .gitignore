@@ -28,6 +28,8 @@ data/
 kubeconfig*
 *.tfstate*
 
+.k8s-rendered.yaml
+
 # OS / editor
 .DS_Store
 .idea/

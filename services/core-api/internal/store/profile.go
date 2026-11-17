@@ -30,6 +30,8 @@ type Profile struct {
 	Skills         []string     `json:"skills"`
 	Experiences    []Experience `json:"experiences"`
 	UpdatedAt      *time.Time   `json:"updated_at"`
+	// When the photo was last changed (nil = no photo). Read-only: set by the photo endpoints.
+	PhotoUpdatedAt *time.Time `json:"photo_updated_at"`
 }
 
 var month = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)

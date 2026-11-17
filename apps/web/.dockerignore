@@ -1,0 +1,10 @@
+.git
+.env*
+.next
+node_modules
+coverage
+*.tsbuildinfo
+*.test.ts
+*.test.tsx
+Dockerfile
+.dockerignore

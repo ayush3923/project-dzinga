@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { api, type Application } from "@/lib/api";
-import { STAGES, STAGE_META, isStage, relativeDays, shortDate, type StageKey } from "@/lib/format";
+import { api, type AppDetail, type Application } from "@/lib/api";
+import { STAGES, STAGE_META, isStage, relativeDays, roundsLabel, shortDate, type StageKey } from "@/lib/format";
 import { CompanyLogo, EmptyInbox, MailboxIcon, MailboxIcons, Offline, StageBadge } from "@/components/ui";
+import { RoundsControl } from "./RoundsControl";
 import { StageControl } from "./StageControl";
 import { EditDetails } from "@/components/EditDetails";
+import { FitPill } from "@/app/analysis/FitPill";
+import { FitRequestButton } from "./FitRequestButton";
 import styles from "./pipeline.module.css";
 
 type Params = { stage?: StageKey; q?: string; app?: string };
@@ -120,6 +123,7 @@ async function Board({ searchParams }: { searchParams: PageProps<"/pipeline">["s
 }
 
 function AppCard({ a, href, now, selected }: { a: Application; href: string; now: Date; selected?: boolean }) {
+  const rounds = roundsLabel(a.rounds_done, a.next_step, a.stage);
   return (
     <Link href={href} scroll={false} className={styles.appCard} data-stage={a.stage} aria-current={selected}>
       <div className={styles.cardTop}>
@@ -129,6 +133,7 @@ function AppCard({ a, href, now, selected }: { a: Application; href: string; now
           <span className="muted">{a.role || "Role not detected"}</span>
         </div>
       </div>
+      {rounds && <p className={styles.rounds}>{rounds}</p>}
       <div className={styles.cardMeta}>
         <span className={styles.metaLeft}>
           <MailboxIcons accounts={a.accounts} />
@@ -140,6 +145,32 @@ function AppCard({ a, href, now, selected }: { a: Application; href: string; now
   );
 }
 
+/** The fit score in brief, linking to the full breakdown on the Analysis page. */
+function FitSummary({ id, detail }: { id: number; detail: AppDetail | null }) {
+  if (!detail) return null;
+  const f = detail.fit;
+  if (!f) {
+    return (
+      <section className={styles.fitBox} aria-label="Fit score">
+        <span className="faint">No fit score yet.</span>
+        {detail.fit_requested_at
+          ? <span className="faint">Queued for Claude {shortDate(detail.fit_requested_at)}; it&rsquo;s done on the next scheduled run.</span>
+          : <FitRequestButton id={id} />}
+      </section>
+    );
+  }
+  return (
+    <section className={styles.fitBox} aria-label="Fit score">
+      <div className={styles.fitHead}>
+        <FitPill total={f.total} />
+        <span className="faint">Fit score · {f.model.startsWith("claude-opus") ? "Claude Opus" : f.model === "rules" ? "rule-based" : f.model} · {shortDate(f.created_at)}</span>
+      </div>
+      {f.verdict && <p className={styles.fitVerdict}>{f.verdict}</p>}
+      <Link href={`/analysis?view=all&app=${id}`} className={styles.orgLink}>See the full fit analysis →</Link>
+    </section>
+  );
+}
+
 async function Drawer({ id, closeHref }: { id: number; closeHref: string }) {
   let data;
   try {
@@ -147,6 +178,7 @@ async function Drawer({ id, closeHref }: { id: number; closeHref: string }) {
   } catch {
     return null;
   }
+  const detail = await api.detail(id).catch(() => null);
   const { application: a, events } = data;
   return (
     <>
@@ -175,8 +207,11 @@ async function Drawer({ id, closeHref }: { id: number; closeHref: string }) {
           </div>
         </dl>
 
+        <FitSummary id={a.id} detail={detail} />
+
         <EditDetails id={a.id} company={a.company} role={a.role} jobUrl={a.job_url} basePath="/pipeline?app=" />
         <StageControl id={a.id} stage={a.stage} manual={a.stage_is_manual} />
+        <RoundsControl id={a.id} stage={a.stage} rounds={a.rounds_done} next={a.next_step} />
         {a.organization_id > 0 && (
           <Link href={`/organizations?org=${a.organization_id}`} className={styles.orgLink}>
             All applications to {a.company} →

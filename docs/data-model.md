@@ -8,7 +8,7 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 
 | Table | One row per | Key columns | Written by |
 |---|---|---|---|
-| `applications` | job application (company + role) | company, role, stage, stage_override, applied_at, last_activity_at | ingest (via core-api), user (stage override) |
+| `applications` | job application (company + role) | company, role, stage, stage_override, applied_at, last_activity_at, rounds_done, next_step | ingest (via core-api), user (stage override, interview progress) |
 | `events` | job-related email | message_id (unique per user), account, occurred_at, sender, sender_name, subject, snippet (≤400 chars), kind, job_url | ingest |
 | `stage_history` | step in an application's path | stage (applied, shortlisted, assessment, interview, offer, rejected), round, entered_at, event_id, source (email or manual) | core-api, rebuilt from `events` |
 | `contacts` | person who emailed the user about an application | name, email, role_hint, source (mailbox or posting) | core-api, from received mail only |
@@ -25,6 +25,7 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 | `profile_experiences` | role in the profile | position, title, company, start_month, end_month, location | user |
 | `profile_highlights` | achievement under a role | position, text | user |
 | `profile_skills` | skill | skill | user |
+| `profile_photos` | profile photo (the image is a file on core-api's disk) | updated_at | user (upload, remove) |
 | `intents` | job-search intent (PRD stage 1) | roles, designation, locations, salary range, company types, situation | user |
 | `organizations` | company (normalised name) | key, name | core-api, from applications; user (preferred list) |
 | `org_settings` / `org_preferences` | preferred organizations | preferred_mode (auto = top 3, manual), ordered list | user |
@@ -32,7 +33,18 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 | `company_news` / `company_products` / `company_leaders` | profile details | news ≤ 5 from the last 3 months with date and link; products; leaders | agent |
 | `company_ratings` | external rating | source (glassdoor = employees, gartner_peer_insights = customers), score (NULL = not found), review_count, url, as_of | agent |
 | `org_diagnoses` / `org_diagnosis_items` | diagnosis run | summary, causes with confidence, actions | agent (Sonnet 5) |
+| `research_requests` | queued work for Claude (ADR 0007) | kind (company_profile, job_posting, fit_score), target_id, status (pending, done) | web app, refresh; done when the result is saved |
 | `llm_usage` | Claude API call | purpose, model, input_tokens, output_tokens, web_searches | agent (cost tracking, Rule 7) |
+
+## Quiz service tables (`data/quiz.db`, ADR 0008)
+
+| Table | One row per | Key columns | Written by |
+|---|---|---|---|
+| `quizzes` | daily quiz (one per IST day) | day, model | Claude (scheduled run) |
+| `quiz_questions` | one of 7 questions per quiz | position, kind (mcq ×5, subjective, voice), topic (ai_news, pm_concept, org_news), prompt, options, answer, explanation, source_title, source_url | Claude |
+| `quiz_answers` | the user's answer to a question | choice, text, audio_file (name only; file in the service's audio folder), transcript, feedback, score (0–10) | user; Claude adds feedback |
+| `quiz_requests` | day whose quiz a refresh asked for | day, requested_at, done_at | sync service (refresh); done when the quiz is saved |
+| `news_items` | key news item for a day (shown on the profile) | day, position, topic (ai_news, org_news), company, title, summary, source_title, url, published_on | Claude, with the daily quiz |
 
 ## Relationships
 
@@ -66,3 +78,7 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 - Contacts are only people who emailed the user, or who are named in a public posting.
   Email addresses are never guessed.
 - Drafts are never sent by Dzinga.
+- The profile photo is re-encoded on upload, which removes EXIF and other metadata
+  (including GPS location), and stored only on core-api's disk (mode 0600).
+- Spoken quiz answers stay on the quiz service's disk and are transcribed on the same
+  machine, never by a third-party speech service.

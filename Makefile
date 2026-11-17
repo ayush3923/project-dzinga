@@ -18,13 +18,16 @@ SINCE_FLAG = $(if $(SINCE),--since $(SINCE),)
 CORE_PORT ?= 8091
 CORE_URL = http://127.0.0.1:$(CORE_PORT)
 
-.PHONY: help env core-api ingest-service agent web ingest-gmail preview-gmail ingest-yahoo preview-yahoo ingest-outlook preview-outlook demo test test-go test-web vuln
+.PHONY: help env core-api ingest-service quiz agent web ingest-gmail preview-gmail ingest-yahoo preview-yahoo ingest-outlook preview-outlook demo test test-go test-web vuln images k8s-validate
 
 help:
 	@echo "make core-api                        start the API on 127.0.0.1:$(CORE_PORT)"
 	@echo "make ingest-service                  start the sync service on 127.0.0.1:8083 (Sync now, mailboxes)"
+	@echo "make quiz                            start the quiz service on 127.0.0.1:8084 (daily quiz)"
 	@echo "make agent                           start the Claude agent on 127.0.0.1:8082 (needs ANTHROPIC_API_KEY in .env.local)"
 	@echo "make web                             start the web app on http://localhost:3000"
+	@echo "make images REGISTRY=<ecr>           build and push all five container images"
+	@echo "make k8s-validate                    validate and lint the Kubernetes manifests"
 	@echo "make preview-yahoo EMAIL=you@yahoo.com  dry run: list job emails found, send nothing"
 	@echo "make ingest-yahoo EMAIL=you@yahoo.com   import job emails from Yahoo"
 	@echo "make preview-gmail EMAIL=you@gmail.com   dry run for Gmail"
@@ -49,6 +52,10 @@ core-api: env
 # The sync service behind the web app's "Sync now" and Connected mailboxes panel.
 ingest-service: env
 	cd services/ingest && DZ_INTERNAL_TOKEN=$(TOKEN) DZ_MS_CLIENT_ID=$(MS_CLIENT) go run . --serve --core-url $(CORE_URL)
+
+# The daily quiz (ADR 0008): its own database (data/quiz.db) and recordings (data/quiz-audio).
+quiz: env
+	cd services/quiz && DZ_INTERNAL_TOKEN=$(TOKEN) DZ_QUIZ_ADDR=127.0.0.1:8084 DZ_QUIZ_DB_PATH=$(CURDIR)/data/quiz.db go run .
 
 agent: env
 	@grep -q '^ANTHROPIC_API_KEY=.' $(ENV_FILE) || { echo "Add ANTHROPIC_API_KEY=... to .env.local first (it stays on your Mac)"; exit 1; }
@@ -101,6 +108,7 @@ test-go:
 	cd services/core-api && go vet ./... && go test -race -cover ./...
 	cd services/ingest && go vet ./... && go test -race -cover ./...
 	cd services/agent && go vet ./... && go test -race -cover ./...
+	cd services/quiz && go vet ./... && go test -race -cover ./...
 
 test-web:
 	cd apps/web && pnpm typecheck && pnpm lint && pnpm test
@@ -109,4 +117,27 @@ vuln:
 	cd services/core-api && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	cd services/ingest && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	cd services/agent && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	cd services/quiz && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	cd apps/web && pnpm audit --prod
+
+# Container images (ADR 0006). Needs Docker with buildx and an ECR login:
+#   make images REGISTRY=<account>.dkr.ecr.ap-south-1.amazonaws.com
+PLATFORM ?= linux/arm64
+IMAGE_TAG ?= $$(git rev-parse --short HEAD)
+images:
+	@test -n "$(REGISTRY)" || { echo "Set REGISTRY=<account>.dkr.ecr.ap-south-1.amazonaws.com"; exit 1; }
+	@test -z "$$(git status --porcelain)" || { echo "Commit first: image tags name a git commit"; exit 1; }
+	for s in core-api agent ingest quiz; do \
+		docker buildx build --platform $(PLATFORM) --provenance=true --sbom=true --push -t $(REGISTRY)/dzinga/$$s:$(IMAGE_TAG) services/$$s || exit 1; \
+	done
+	docker buildx build --platform $(PLATFORM) --provenance=true --sbom=true --push -t $(REGISTRY)/dzinga/web:$(IMAGE_TAG) apps/web
+
+# Renders the manifests, checks them against the Kubernetes schemas and lints them. No cluster needed.
+KUSTOMIZE = go run sigs.k8s.io/kustomize/kustomize/v5@v5.8.3
+KUBECONFORM = go run github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
+KUBE_LINTER = go run golang.stackrox.io/kube-linter/cmd/kube-linter@v0.8.3
+k8s-validate:
+	$(KUSTOMIZE) build deploy/k8s/overlays/prod > .k8s-rendered.yaml
+	$(KUBECONFORM) -strict -summary -kubernetes-version 1.33.0 .k8s-rendered.yaml
+	$(KUBE_LINTER) lint --config deploy/k8s/.kube-linter.yaml .k8s-rendered.yaml
+	rm -f .k8s-rendered.yaml

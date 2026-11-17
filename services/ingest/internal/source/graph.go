@@ -233,6 +233,12 @@ func (g *Graph) get(ctx context.Context, token, u string, extra map[string]strin
 
 var errNotFound = errors.New("not found")
 
+// invite: a meeting request. Its body is always read, since interview invites often have
+// subjects like "Ayush <> Acme" that the header filter can't place.
+func (m graphMsg) invite() bool {
+	return strings.EqualFold(m.Type, "#microsoft.graph.eventMessageRequest")
+}
+
 func (g *Graph) checkAccount(ctx context.Context, token string) error {
 	var me struct {
 		UserPrincipalName string `json:"userPrincipalName"`
@@ -259,6 +265,7 @@ type graphAddr struct {
 
 type graphMsg struct {
 	ID                string    `json:"id"`
+	Type              string    `json:"@odata.type"` // #microsoft.graph.eventMessageRequest for meeting invitations
 	InternetMessageID string    `json:"internetMessageId"`
 	Subject           string    `json:"subject"`
 	From              graphAddr `json:"from"`
@@ -295,7 +302,7 @@ func (g *Graph) fetchFolder(ctx context.Context, token, folder string, since tim
 		}
 		for _, m := range page.Value {
 			total++
-			if prefilter == nil || prefilter(strings.ToLower(m.From.EmailAddress.Address), m.Subject) {
+			if prefilter == nil || m.invite() || prefilter(strings.ToLower(m.From.EmailAddress.Address), m.Subject) {
 				candidates = append(candidates, m)
 			}
 		}
@@ -327,6 +334,7 @@ func (g *Graph) fetchFolder(ctx context.Context, token, folder string, since tim
 		m.FromName, m.FromAddr = c.From.EmailAddress.Name, strings.ToLower(c.From.EmailAddress.Address)
 		m.Subject, m.Text = c.Subject, strings.TrimSpace(text)
 		m.Links = links(htmlBody, text)
+		m.Invite = c.invite()
 		if err := fn(m); err != nil {
 			return err
 		}

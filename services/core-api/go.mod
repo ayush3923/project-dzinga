@@ -1,6 +1,6 @@
 module github.com/ayush3923/project-dzinga/services/core-api
 
-go 1.27.2
+go 1.27.4
 
 require modernc.org/sqlite v1.60.1
 

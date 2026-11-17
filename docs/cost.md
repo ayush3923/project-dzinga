@@ -20,7 +20,10 @@ is added or removed.
 | Container registry | ECR | ~1 | Lifecycle policy keeps only the last N images |
 | Logs and metrics | CloudWatch | ~5–10 | Short retention; audit logs go to S3 |
 | Backups and audit logs | S3 Standard-IA or Glacier IR | ~1 | |
-| **Total** | | **~66–81** | Leaves about USD 20 headroom |
+| Volume snapshots | EBS snapshots via Data Lifecycle Manager, about 5 GB changed | ~0.5 | Backup for the core-api database (ADR 0006) |
+| Claude work queue (ADR 0007) | Scheduled Claude task on the owner's subscription | 0 | No API calls |
+| Quiz service (ADR 0008) | 1 small pod (32–128 MiB) on the existing server node, 2 GiB volume | ~0.2 | gp3 storage for the volume; no new instance |
+| **Total** | | **~67–82** | Leaves about USD 20 headroom |
 
 ## Deliberately avoided
 

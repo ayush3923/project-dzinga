@@ -264,7 +264,9 @@ type Application struct {
 	LastActivityAt time.Time `json:"last_activity_at"`
 	EventCount     int       `json:"event_count"`
 	OrganizationID int64     `json:"organization_id"`
-	JobURL         string    `json:"job_url"` // added by the user; "" when none
+	JobURL         string    `json:"job_url"`     // added by the user; "" when none
+	RoundsDone     int       `json:"rounds_done"` // interview rounds completed, set by the user
+	NextStep       string    `json:"next_step"`   // what comes next, set by the user; "" when none
 }
 
 type Event struct {
@@ -281,13 +283,13 @@ const appColumns = `a.id, a.company, a.role, COALESCE(a.stage_override, a.stage)
 	a.source_account, a.applied_at, a.last_activity_at,
 	(SELECT COUNT(*) FROM events e WHERE e.application_id = a.id),
 	COALESCE((SELECT group_concat(account, char(31)) FROM (SELECT DISTINCT account FROM events e
-		WHERE e.application_id = a.id ORDER BY account)), ''), COALESCE(a.organization_id, 0), a.job_url`
+		WHERE e.application_id = a.id ORDER BY account)), ''), COALESCE(a.organization_id, 0), a.job_url, a.rounds_done, a.next_step`
 
 func scanApp(row interface{ Scan(...any) error }) (Application, error) {
 	var a Application
 	var applied, last, accounts string
 	if err := row.Scan(&a.ID, &a.Company, &a.Role, &a.Stage, &a.StageIsManual,
-		&a.SourceAccount, &applied, &last, &a.EventCount, &accounts, &a.OrganizationID, &a.JobURL); err != nil {
+		&a.SourceAccount, &applied, &last, &a.EventCount, &accounts, &a.OrganizationID, &a.JobURL, &a.RoundsDone, &a.NextStep); err != nil {
 		return a, err
 	}
 	a.Accounts = []string{}

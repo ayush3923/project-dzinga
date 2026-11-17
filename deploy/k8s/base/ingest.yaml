@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingest
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingest
+spec:
+  type: ClusterIP
+  selector:
+    app: ingest
+  ports:
+    - { name: http, port: 8083, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest
+spec:
+  replicas: 1 # sync progress and Microsoft sign-ins in progress are held in memory
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: ingest
+  template:
+    metadata:
+      labels:
+        app: ingest
+    spec:
+      serviceAccountName: ingest
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ingest
+          image: dzinga/ingest:unset
+          args: ["--serve", "--core-url=http://core-api:8091"]
+          ports:
+            - { name: http, containerPort: 8083 }
+          env:
+            - { name: DZ_INGEST_ADDR, value: "0.0.0.0:8083" }
+            - { name: DZ_AGENT_URL, value: "http://agent:8082" }
+            - { name: DZ_QUIZ_URL, value: "http://quiz:8084" }
+            - name: DZ_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef: { name: dzinga-internal, key: internal-token }
+            - name: DZ_MS_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: dzinga-ingest, key: ms-client-id, optional: true }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

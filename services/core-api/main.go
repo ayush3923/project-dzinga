@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -69,6 +70,7 @@ func main() {
 		Handler: (&api.Server{
 			Store: st, Log: log, InternalToken: token,
 			UserID: env("DZ_USER_ID", "owner"), Now: time.Now,
+			PhotoDir: env("DZ_PHOTO_DIR", filepath.Join(filepath.Dir(env("DZ_DB_PATH", "../../data/dzinga.db")), "profile-photo")),
 		}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

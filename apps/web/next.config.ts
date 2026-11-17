@@ -10,6 +10,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
+  "media-src 'self' blob:", // quiz recordings: local preview and playback
   `connect-src 'self'${dev ? " ws:" : ""}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
@@ -18,9 +19,14 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  experimental: {
+    // Spoken quiz answers are uploaded through a server action (core-api caps them at 8 MB).
+    serverActions: { bodySizeLimit: "9mb" },
+  },
   async headers() {
     return [
       {
@@ -30,7 +36,8 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          // Microphone for this site only: the daily quiz's spoken answer.
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
         ],
       },
     ];
