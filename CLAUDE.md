@@ -117,6 +117,9 @@ major library without an ADR. Pin versions.
 | AWS region | ap-south-1 (Mumbai); edge resources in us-east-1 | [0003](docs/adr/0003-region-ap-south-1.md) |
 | Infrastructure as code tool | AWS CDK v2 (TypeScript) with cdk-nag | [0004](docs/adr/0004-iac-aws-cdk.md) |
 | AI model routing | Per task: retrieval Sonnet 4.6, summary Sonnet 5, correlation and scoring Opus 5.5; escalate once on failure | [0005](docs/adr/0005-llm-model-router.md) |
+| Container images and manifests | Distroless Go and standalone Next.js images; Kustomize base and overlay; no public ingress until sign-in exists | [0006](docs/adr/0006-container-images-and-manifests.md) |
+| Claude work queue | Refresh queues Opus fit scores and the daily quiz; a scheduled Claude task drains the queue on the subscription, not the API | [0007](docs/adr/0007-claude-work-queue.md) |
+| Quiz service | The daily quiz, answers and recordings live in their own service and database; the refresh asks it for each day's quiz | [0008](docs/adr/0008-quiz-service.md) |
 | Database | _open_: RDS PostgreSQL or Postgres inside the cluster | |
 | Observability backend | _open_: CloudWatch, or self-hosted Grafana with Prometheus and Loki | |
 
