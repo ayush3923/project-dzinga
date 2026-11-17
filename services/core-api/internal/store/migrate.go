@@ -272,7 +272,7 @@ CREATE TABLE org_diagnosis_items (
 `)
 
 // v5: connected mailboxes and sync settings. Credentials are NOT stored here: they
-// live in the macOS Keychain (prototype) or AWS Secrets Manager (production).
+// live in the macOS Keychain (local) or AWS Secrets Manager (production).
 var _ = appendMigration(`
 CREATE TABLE mailboxes (
 	id               INTEGER PRIMARY KEY,

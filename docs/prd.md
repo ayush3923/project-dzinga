@@ -56,10 +56,10 @@ Each stage is one module. Everything uses one shared, indexed data store.
 - **Compliance:** follow the rules in CLAUDE.md. Never scrape a site whose terms forbid
   it; use official APIs, RSS feeds, or emails the user already receives.
 
-## 5. Prototype scope (iteration 1)
+## 5. Iteration 1 scope
 
 **Goal:** see every job application from the owner's **Yahoo** mailbox in one place,
-with its current stage. The prototype runs locally.
+with its current stage. Iteration 1 runs locally.
 
 | In scope | Out of scope (later iterations) |
 |---|---|
@@ -69,7 +69,7 @@ with its current stage. The prototype runs locally.
 | Rules-based email classifier with unit tests | Classification and drafting by an AI model (Bedrock) |
 | SQLite with FTS5 full-text search | PostgreSQL, AWS deployment |
 
-**Architecture of the prototype** (it mirrors the target microservices):
+**Architecture of iteration 1** (it mirrors the target microservices):
 
 ```
 Yahoo IMAP (read-only) ──► ingest (Go) ──HTTP──► core-api (Go) ──► SQLite + FTS5
