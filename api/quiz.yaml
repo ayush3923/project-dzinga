@@ -1,0 +1,82 @@
+openapi: 3.1.0
+info:
+  title: Dzinga quiz service
+  version: 1.0.0
+  description: >
+    The daily quiz (ADR 0008): five multiple-choice questions, one written and one spoken.
+    /api routes are called by the web app's server; /internal routes need the internal token.
+servers:
+  - url: http://127.0.0.1:8084
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      responses:
+        "200": { description: ok }
+  /api/v1/quiz:
+    get:
+      summary: A day's quiz (default today, IST), whether it is requested, and the last 14 quizzes
+      parameters:
+        - { name: day, in: query, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+      responses:
+        "200": { description: "{day, quiz (null until built), queued_at, history}. MCQ answers are hidden until answered." }
+        "400": { description: Bad day }
+  /api/v1/quiz/questions/{id}/answer:
+    post:
+      summary: Answer an MCQ (choice, once) or the written question (text, until feedback)
+      responses:
+        "200": { description: The question with the answer and, for an MCQ, the result }
+        "400": { description: Wrong answer type for the question }
+        "409": { description: Already answered }
+  /api/v1/quiz/questions/{id}/voice:
+    put:
+      summary: Save a spoken answer (audio/webm, audio/ogg or audio/mp4; at most 8 MB; checked by content)
+      responses:
+        "200": { description: Saved; feedback is pending }
+        "409": { description: Feedback already given }
+        "413": { description: Too large }
+        "415": { description: Not a supported audio file }
+    get:
+      summary: Play back the saved recording
+  /api/v1/stats:
+    get:
+      summary: Quiz performance for the profile page (accuracy all-time and last 7 days, streak, written and spoken averages, last 14 quizzes)
+  /api/v1/news:
+    get:
+      summary: The latest day's key news, gathered with the quiz
+  /internal/v1/news:
+    put:
+      summary: Replace a day's key news (3-12 items, each with an https source)
+      security: [{ internalToken: [] }]
+      responses:
+        "204": { description: Saved }
+        "400": { description: Invalid items }
+  /internal/v1/requests:
+    post:
+      summary: Ask for a day's quiz (default today, IST); a refresh's last step
+      security: [{ internalToken: [] }]
+      responses:
+        "202": { description: Requested (nothing happens if the quiz exists) }
+  /internal/v1/pending:
+    get:
+      summary: Claude's quiz work - days to build, days missing key news, and written or spoken answers awaiting feedback
+      security: [{ internalToken: [] }]
+  /internal/v1/quizzes:
+    put:
+      summary: Save a day's quiz (5 mcq, 1 subjective, 1 voice); replaces it only if unanswered
+      security: [{ internalToken: [] }]
+      responses:
+        "204": { description: Saved }
+        "400": { description: Wrong shape }
+        "409": { description: Already answered }
+  /internal/v1/questions/{id}:
+    get:
+      summary: A question with its answer and the recording's local path
+      security: [{ internalToken: [] }]
+  /internal/v1/questions/{id}/feedback:
+    put:
+      summary: Save feedback (transcript, feedback, score 0-10) on a written or spoken answer
+      security: [{ internalToken: [] }]
+components:
+  securitySchemes:
+    internalToken: { type: http, scheme: bearer }
