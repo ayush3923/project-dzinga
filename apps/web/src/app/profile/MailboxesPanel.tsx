@@ -27,7 +27,7 @@ const HELP: Record<string, { name: string; url: string }> = {
 };
 
 const when = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "never";
+  iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "never";
 
 export function MailboxesPanel({ mailboxes, settings }: { mailboxes: Mailbox[]; settings: SyncSettings }) {
   const [lookback, setLookback] = useState<Lookback>(settings.lookback);
@@ -45,7 +45,7 @@ export function MailboxesPanel({ mailboxes, settings }: { mailboxes: Mailbox[]; 
   const selected = mailboxes.filter((m) => m.enabled && m.credential_saved);
 
   return (
-    <section id="mailboxes" className={`card ${styles.card}`} aria-labelledby="mb-h">
+    <section className={`card ${styles.card}`} aria-labelledby="mb-h">
       <h2 id="mb-h">Connected mailboxes <span className="faint">read-only · credentials stay in your Mac’s Keychain</span></h2>
 
       <ul className={styles.mailboxes}>
