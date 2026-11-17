@@ -6,7 +6,7 @@
 ## Context
 
 Rule 5 requires each service to ship as a container with manifests, probes, resource
-limits, a non-root user and a read-only filesystem. The prototype runs on one Mac, keeps
+limits, a non-root user and a read-only filesystem. Dzinga runs on one Mac today, keeps
 its data in SQLite, and has no sign-in. ADR 0001 gives us one on-demand k3s server node and
 optional spot agent nodes.
 

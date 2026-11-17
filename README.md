@@ -21,7 +21,7 @@ compliant, and observable from the start.
 | Region | ap-south-1 (Mumbai) |
 | Observability | OpenTelemetry |
 
-## Running the prototype (iteration 1)
+## Running locally
 
 Everything runs on your Mac and listens on `127.0.0.1` only. Use three terminal tabs:
 

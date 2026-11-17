@@ -1,5 +1,5 @@
 // Package secrets stores mailbox credentials (app passwords, Microsoft refresh
-// tokens) outside the database: in the macOS Keychain for the local prototype, and
+// tokens) outside the database: in the macOS Keychain when running locally, and
 // in AWS Secrets Manager in production. Secrets are never logged or returned by an API.
 package secrets
 

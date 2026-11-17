@@ -65,7 +65,7 @@ func main() {
 	}
 
 	srv := &http.Server{
-		// Loopback only: the prototype is never reachable from the network.
+		// Loopback only: the local service is never reachable from the network.
 		Addr: env("DZ_CORE_ADDR", "127.0.0.1:8081"),
 		Handler: (&api.Server{
 			Store: st, Log: log, InternalToken: token,

@@ -1,4 +1,4 @@
-# Local prototype commands. Run `make help` for the list.
+# Local development commands. Run `make help` for the list.
 #
 # DZ_INTERNAL_TOKEN authenticates ingest → core-api. It is generated once into
 # .env.local (git-ignored) and never printed.
@@ -14,7 +14,7 @@ DB ?= $(CURDIR)/data/dzinga.db
 # Optional: only scan mail on/after this date, e.g. SINCE=2026-08-14
 SINCE_FLAG = $(if $(SINCE),--since $(SINCE),)
 
-# core-api's port. 8091, not 8081: the CCI prototype's local stack uses 8080/8081.
+# core-api's port. 8091, not 8081: another local stack (CCI) uses 8080/8081.
 CORE_PORT ?= 8091
 CORE_URL = http://127.0.0.1:$(CORE_PORT)
 

@@ -86,7 +86,7 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1) // SQLite: one writer; keeps WAL simple for the prototype.
+	db.SetMaxOpenConns(1) // SQLite: one writer; keeps WAL simple.
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)

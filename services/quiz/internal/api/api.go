@@ -21,7 +21,7 @@ type Server struct {
 	Store         *store.Store
 	Log           *slog.Logger
 	InternalToken string // shared secret for service-to-service calls
-	UserID        string // prototype: single local user
+	UserID        string // single local user
 	Now           func() time.Time
 	AudioDir      string // spoken answers; this service's disk only
 }

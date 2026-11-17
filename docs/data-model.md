@@ -1,7 +1,7 @@
 # Data model
 
 core-api owns all data. Every table carries `user_id`, and every query filters on it.
-The prototype uses SQLite (`services/core-api/internal/store/migrate.go`). Production
+Local deployments use SQLite (`services/core-api/internal/store/migrate.go`). Production
 uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 
 ## Tables

@@ -54,7 +54,7 @@ export function Rail() {
           ))}
         </details>
       </nav>
-      <div className="rail-foot">Prototype · local data only</div>
+      <div className="rail-foot">Local data only</div>
     </aside>
   );
 }

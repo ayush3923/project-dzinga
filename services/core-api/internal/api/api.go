@@ -22,7 +22,7 @@ type Server struct {
 	Store         *store.Store
 	Log           *slog.Logger
 	InternalToken string // shared secret for service-to-service calls (ingest → core-api)
-	UserID        string // prototype: single local user; replaced by Cognito identity later
+	UserID        string // single local user; replaced by Cognito identity later
 	Now           func() time.Time
 	PhotoDir      string // the profile photo; local disk only (see photo.go)
 }
