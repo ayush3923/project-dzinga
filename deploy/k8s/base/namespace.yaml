@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dzinga
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+# Workloads share a t4g.medium with the control plane: cap what this namespace can claim.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dzinga
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.memory: 2Gi
+    pods: "10"
+    persistentvolumeclaims: "1"
+    services.nodeports: "0"
+    services.loadbalancers: "0"

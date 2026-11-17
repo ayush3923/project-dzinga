@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: core-api
+automountServiceAccountToken: false
+---
+# local-path deletes the data when this claim is deleted: never run `kubectl delete -k`
+# against this namespace without a fresh snapshot (deploy/README.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: core-api-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-api
+spec:
+  type: ClusterIP
+  selector:
+    app: core-api
+  ports:
+    - { name: http, port: 8091, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-api
+spec:
+  replicas: 1 # SQLite allows one writer, and the volume lives on one node
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: core-api
+  template:
+    metadata:
+      labels:
+        app: core-api
+    spec:
+      serviceAccountName: core-api
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # The on-demand server node: on a spot node, the data would go when the node does.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: core-api
+          image: dzinga/core-api:unset
+          ports:
+            - { name: http, containerPort: 8091 }
+          env:
+            - { name: DZ_CORE_ADDR, value: "0.0.0.0:8091" }
+            - { name: DZ_DB_PATH, value: /data/dzinga.db }
+            - name: DZ_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef: { name: dzinga-internal, key: internal-token }
+          # Startup rebuilds derived history, which grows with the data.
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: core-api-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

@@ -1,0 +1,165 @@
+# Default deny, then only the paths the services use. core-api's /api routes have no
+# authentication yet (one local user), so these policies are their only protection.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [web, ingest, agent] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# core-api needs no egress at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: core-api
+spec:
+  podSelector:
+    matchLabels: { app: core-api }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [web, ingest, agent] }
+      ports:
+        - { protocol: TCP, port: 8091 }
+---
+# The quiz service (ADR 0008) needs no egress. Its /api routes have no authentication
+# yet, like core-api's, so only web and ingest may reach it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: quiz
+spec:
+  podSelector:
+    matchLabels: { app: quiz }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [web, ingest] }
+      ports:
+        - { protocol: TCP, port: 8084 }
+---
+# agent reads job postings from any public site and calls the Claude API, so egress can't
+# be an allowlist of hosts. Private ranges and the EC2 metadata service stay blocked, as a
+# second layer behind the fetcher's own SSRF checks.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent
+spec:
+  podSelector:
+    matchLabels: { app: agent }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [web, ingest] }
+      ports:
+        - { protocol: TCP, port: 8082 }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app: core-api }
+      ports:
+        - { protocol: TCP, port: 8091 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 127.0.0.0/8]
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+# ingest reaches mail providers: IMAP over TLS, and Microsoft Graph over HTTPS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingest
+spec:
+  podSelector:
+    matchLabels: { app: ingest }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app: web }
+      ports:
+        - { protocol: TCP, port: 8083 }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app: core-api }
+      ports:
+        - { protocol: TCP, port: 8091 }
+    - to:
+        - podSelector:
+            matchLabels: { app: agent }
+      ports:
+        - { protocol: TCP, port: 8082 }
+    - to:
+        - podSelector:
+            matchLabels: { app: quiz }
+      ports:
+        - { protocol: TCP, port: 8084 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 127.0.0.0/8]
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 993 }
+---
+# web takes no traffic from inside the cluster. Public access is a separate, opt-in
+# component (components/public-ingress) because the app has no sign-in yet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web
+spec:
+  podSelector:
+    matchLabels: { app: web }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app: core-api }
+      ports:
+        - { protocol: TCP, port: 8091 }
+    - to:
+        - podSelector:
+            matchLabels: { app: ingest }
+      ports:
+        - { protocol: TCP, port: 8083 }
+    - to:
+        - podSelector:
+            matchLabels: { app: agent }
+      ports:
+        - { protocol: TCP, port: 8082 }
+    - to:
+        - podSelector:
+            matchLabels: { app: quiz }
+      ports:
+        - { protocol: TCP, port: 8084 }

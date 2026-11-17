@@ -1,0 +1,14 @@
+# Every default and optional check runs, except these (reasons in deploy/README.md).
+checks:
+  addAllBuiltIn: true
+  exclude:
+    - dnsconfig-options           # cluster defaults are correct
+    - env-value-from              # Secrets are created out of band, never kept in git
+    - no-node-affinity            # only core-api must be pinned; it uses nodeSelector
+    - minimum-three-replicas      # one node, USD 100/month budget (ADR 0001)
+    - no-rolling-update-strategy  # core-api needs Recreate; the others use the default
+    - read-secret-from-env-var    # the services read secrets from the environment today
+    - required-annotation-email   # one owner; no ownership metadata needed yet
+    - required-label-owner        # one owner; no ownership metadata needed yet
+    - restart-policy              # false positive: Deployments default to Always
+    - unset-cpu-requirements      # CPU limits throttle; requests are set and quota-capped

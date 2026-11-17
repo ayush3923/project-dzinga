@@ -1,6 +1,6 @@
 module github.com/ayush3923/project-dzinga/services/ingest
 
-go 1.27.2
+go 1.27.4
 
 require (
 	github.com/emersion/go-imap v1.2.1
