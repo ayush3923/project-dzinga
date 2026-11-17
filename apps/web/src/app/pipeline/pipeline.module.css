@@ -363,3 +363,31 @@
 }
 
 .orgLink { font-size: var(--text-md); text-decoration: underline; text-underline-offset: 3px; margin-top: -8px; }
+
+.rounds {
+  display: inline-block;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.roundsForm {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.roundsForm label {
+  display: grid;
+  gap: 4px;
+}
+
+/* Fit score in the drawer, linking to the Analysis page. */
+.fitBox { display: grid; gap: 6px; padding: 12px 14px; margin: 14px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.fitHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fitVerdict { margin: 0; font-size: var(--text-md); color: var(--ink-2); }

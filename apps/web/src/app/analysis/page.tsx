@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { api, type AnalysisReport, type AppAnalysis, type DurationStat } from "@/lib/api";
 import { STAGE_META } from "@/lib/format";
+import { FIRST_DIR, SORT_LABELS, isSortKey, sortApps, type SortDir, type SortKey } from "@/lib/sort";
 import { CompanyLogo, EmptyInbox, MailboxIcons, Offline, StageBadge } from "@/components/ui";
 import { AnalysisDrawer } from "./AnalysisDrawer";
 import { FitPill } from "./FitPill";
@@ -29,6 +30,9 @@ async function Report({ searchParams }: { searchParams: PageProps<"/analysis">["
   const v = one(sp.view);
   const view: View = v === "closed" || v === "all" ? v : "open";
   const appId = /^\d+$/.test(one(sp.app) ?? "") ? Number(one(sp.app)) : undefined;
+  const s = one(sp.sort);
+  const sortKey: SortKey | undefined = isSortKey(s) ? s : undefined;
+  const dir: SortDir = one(sp.dir) === "asc" || one(sp.dir) === "desc" ? (one(sp.dir) as SortDir) : sortKey ? FIRST_DIR[sortKey] : "asc";
 
   let rep: AnalysisReport;
   try {
@@ -41,15 +45,34 @@ async function Report({ searchParams }: { searchParams: PageProps<"/analysis">["
   const open = rep.applications.filter((a) => a.open);
   const closed = rep.applications.filter((a) => !a.open);
   const list = view === "open" ? open : view === "closed" ? closed : rep.applications;
-  const sorted = [...list].sort((a, b) =>
+  // Default order: what needs attention first (open) or most recent (closed).
+  const sorted = sortKey ? sortApps(list, sortKey, dir) : [...list].sort((a, b) =>
     view === "open"
       ? Number(b.next_move.urgent) - Number(a.next_move.urgent) || b.days_in_stage - a.days_in_stage
       : Date.parse(b.stage_since) - Date.parse(a.stage_since),
   );
-  const href = (patch: { view?: View; app?: number }) => {
+  const href = (patch: { view?: View; app?: number; sort?: SortKey | null; dir?: SortDir }) => {
     const q = new URLSearchParams({ view: patch.view ?? view });
+    const k = patch.sort === null ? undefined : patch.sort ?? sortKey;
+    if (k) {
+      q.set("sort", k);
+      q.set("dir", patch.sort ? patch.dir ?? FIRST_DIR[k] : dir);
+    }
     if (patch.app) q.set("app", String(patch.app));
     return `/analysis?${q}`;
+  };
+  // Clicking the active column flips its direction; another column starts in its natural direction.
+  const sortHref = (k: SortKey) => href({ sort: k, dir: k === sortKey ? (dir === "asc" ? "desc" : "asc") : FIRST_DIR[k] });
+  const sortLink = (k: SortKey) => {
+    const active = k === sortKey;
+    const next = active && dir === "asc" ? "descending" : active ? "ascending" : FIRST_DIR[k] === "asc" ? "ascending" : "descending";
+    return (
+      <Link href={sortHref(k)} scroll={false} className={styles.sortLink} aria-current={active ? "true" : undefined}
+        aria-label={`Sort by ${SORT_LABELS[k].toLowerCase()}, ${next}`}>
+        {SORT_LABELS[k]}
+        <span aria-hidden="true" className={styles.sortArrow}>{active ? (dir === "asc" ? "↑" : "↓") : "↕"}</span>
+      </Link>
+    );
   };
   const firstResponse = rep.outcomes.find((o) => o.key === "first_response");
   const selected = appId ? rep.applications.find((a) => a.id === appId) : undefined;
@@ -82,6 +105,17 @@ async function Report({ searchParams }: { searchParams: PageProps<"/analysis">["
           </Link>
         ))}
       </nav>
+
+      <div className={styles.sortBar} role="toolbar" aria-label="Sort applications">
+        <span className={styles.sortCol} />
+        <span className={styles.sortCol}>{sortLink("company")}{sortLink("role")}</span>
+        <span className={styles.sortCol}>{sortLink("stage")}{sortLink("days")}</span>
+        <span className={styles.sortCol}>{sortLink("fit")}</span>
+        <span className={styles.sortCol}>
+          {sortLink("next")}{sortLink("applied")}
+          {sortKey && <Link href={href({ sort: null })} scroll={false} className={styles.sortReset}>Reset</Link>}
+        </span>
+      </div>
 
       <ul className={styles.rows}>
         {sorted.map((a) => (
