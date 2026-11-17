@@ -298,6 +298,30 @@ func TestClassify(t *testing.T) {
 			ok: false,
 		},
 		{
+			name: "newsletter about interviews",
+			msg: Message{FromName: "Aakash Gupta", FromAddr: "aakashgupta+getting-a-pm-job@substack.com",
+				Subject: "How to Ace PM Interview Presentations and Homework in the AI Era", Text: "View this post on the web"},
+			ok: false,
+		},
+		{
+			name: "interview tool trial marketing",
+			msg: Message{FromName: "Vauric", FromAddr: "hello@vauric.ai",
+				Subject: "Your interview is approaching. Your trial expires tomorrow.", Text: "Everything you haven't used is still waiting."},
+			ok: false,
+		},
+		{
+			name: "company reviews digest",
+			msg: Message{FromName: "Glassdoor", FromAddr: "noreply@glassdoor.com",
+				Subject: "Just in at Tata Communications: This week's employee reviews and more", Text: "Check out recent updates"},
+			ok: false,
+		},
+		{
+			name: "candidate feedback survey",
+			msg: Message{FromName: "SAP", FromAddr: "feedback@invites.starred.com",
+				Subject: "Thank you for applying to SAP - please share your feedback!", Text: "Email not showing correctly?"},
+			ok: false,
+		},
+		{
 			name: "personal email",
 			msg: Message{FromName: "Mom", FromAddr: "mom@yahoo.com",
 				Subject: "Dinner on Sunday?", Text: "Call me"},
@@ -383,5 +407,50 @@ func TestSoftSubjectRejectionIsRead(t *testing.T) {
 		"we regret to inform you that we will not be moving forward with your candidacy at this time."})
 	if !ok || r.Kind != "rejected" || r.Company != "Netskope" {
 		t.Errorf("got %+v ok=%v", r, ok)
+	}
+}
+
+func TestCalendarInvite(t *testing.T) {
+	hcl := Message{FromName: "Mohit Bindroo", FromAddr: "mohit.bindroo@hcl-software.com",
+		Subject: "Invitation: Ayush Kumar - TP1 Discussion - HCLSoftware - Position - P... @ Thu Nov 19, 2026 11:30am - 12:30pm (IST) (ayush_kumar@live.in)",
+		Text: "Ayush Kumar - TP1 Discussion - HCLSoftware - Position - Product Manager (Observability)\nJoin with Google Meet\n" +
+			"Hi All, Please accept the invite for TP1 Discussion. Regards Mohit Bindroo"}
+	cases := []struct {
+		name                string
+		msg                 Message
+		ok                  bool
+		kind, company, role string
+	}{
+		{name: "google calendar invite, title cut short in the subject", msg: hcl,
+			ok: true, kind: "interview", company: "HCLSoftware", role: "Product Manager (Observability)"},
+		{name: "body lines run together", msg: Message{FromAddr: hcl.FromAddr, Subject: hcl.Subject,
+			Text: "Ayush Kumar - TP1 Discussion - HCLSoftware - Position - Product Manager (Observability) Join with Google Meet – Hi All"},
+			ok: true, kind: "interview", company: "HCLSoftware", role: "Product Manager (Observability)"},
+		{name: "outlook meeting request without the Invitation prefix", msg: Message{FromName: "Priya", FromAddr: "priya@northwind.com",
+			Subject: "Northwind | Senior PM | Round 2", Text: "Microsoft Teams meeting", Invite: true},
+			ok: true, kind: "interview", company: "Northwind"},
+		{name: "invite that says interview", msg: Message{FromAddr: "talent@contoso.com",
+			Subject: "Invitation: Interview with Contoso @ Mon Nov 23, 2026 3pm - 4pm (IST) (me@live.in)", Text: "Interview with Contoso"},
+			ok: true, kind: "interview", company: "Contoso"},
+		{name: "work meeting from a company is not an interview", msg: Message{FromAddr: "lead@fabrikam.com",
+			Subject: "Invitation: Sprint planning @ Tue Nov 24, 2026 10am - 11am (IST) (me@live.in)", Text: "Sprint planning"}},
+		{name: "personal invite needs a strong word", msg: Message{FromAddr: "friend@gmail.com",
+			Subject: "Invitation: TP1 Discussion @ Wed Nov 25, 2026 7pm - 8pm (IST) (me@live.in)", Text: "TP1 Discussion"}},
+		{name: "recruiter on gmail with a round", msg: Message{FromName: "Asha from Kestrel", FromAddr: "asha.recruits@gmail.com",
+			Subject: "Invitation: Kestrel - Round 1 - Product Manager @ Wed Nov 25, 2026 7pm - 8pm (IST) (me@live.in)", Text: "Kestrel - Round 1 - Product Manager"},
+			ok: true, kind: "interview", company: "Kestrel"},
+		{name: "declined reply is not an invitation", msg: Message{FromAddr: "mohit.bindroo@hcl-software.com",
+			Subject: "Declined: Ayush Kumar - TP1 Discussion @ Thu Nov 19, 2026", Text: "Mohit has declined this invitation."}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r, ok := Classify(c.msg)
+			if ok != c.ok || r.Kind != c.kind || (c.company != "" && r.Company != c.company) || (c.role != "" && r.Role != c.role) {
+				t.Errorf("got %v %+v, want %v %s/%s/%s", ok, r, c.ok, c.kind, c.company, c.role)
+			}
+		})
+	}
+	if !LooksRelevant("x@y.com", "Invitation: Ayush <> Acme @ Thu Nov 19, 2026") {
+		t.Error("calendar invitations should pass the header filter")
 	}
 }

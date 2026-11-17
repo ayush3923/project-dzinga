@@ -19,6 +19,7 @@ type Message struct {
 	Subject  string
 	Text     string   // plain text body (HTML already stripped)
 	Links    []string // https links found in the body
+	Invite   bool     // a calendar invitation (the provider marked it as a meeting request)
 }
 
 type Result struct {
@@ -64,9 +65,9 @@ var (
 		`is hiring|are hiring|apply now|top job picks|job recommendations|jobs? similar to|webinar|newsletter|` +
 		`profile views?|who viewed|people (also )?viewed|salary insights|premium|% off|upgrade|verify your|otp|password reset|` +
 		`job seekers?|career fair|hiring event|interview (questions|tips|playbook|prep guide)|job vacancies|immediate (job|openings)|` +
-		`exclusive:|^\[?(newsletter|digest)`)
+		`exclusive:|^\[?(newsletter|digest)|trial (expires|ends)|employee reviews|^just in at |share your feedback`)
 	noiseSenders = re(`jobalerts?-noreply@|jobs-listings@|jobs-noreply@.*indeed|alert@indeed|info@naukri\.com|` +
-		`naukrialerts|recommendations@|newsletters?@|marketing@|news@|digest@|docusign\.(net|com)$`)
+		`naukrialerts|recommendations@|newsletters?@|marketing@|news@|digest@|docusign\.(net|com)$|@substack\.com$|@vauric\.ai$|invites\.starred\.com$`)
 
 	// Forums and digests talk about offers and interviews but aren't the user's applications.
 	noiseNames = re(`community|digest|newsletter|forum|bowls?\b`)
@@ -102,6 +103,16 @@ var (
 	// Applications that aren't jobs: loans, cards, insurance, admissions, KYC…
 	nonJob = re(`\b(loan|credit card|card|insurance|policy|mutual fund|demat|kyc|visa|admission|account opening|emi|mortgage|cashback)\b`)
 	viewed = re(`application (was )?viewed|viewed your application|application status|update on your application|regarding your application`)
+
+	// Calendar invitations ("Invitation: Ayush - TP1 Discussion - Acme - Position - PM @ Thu Nov 19…"),
+	// the Google Calendar subject that every provider shows. Replies (Accepted:, Declined:,
+	// Canceled:) aren't invitations.
+	inviteSubject = re(`^(?:updated )?invitation: (.+?)(?: @ (?:mon|tue|wed|thu|fri|sat|sun)\w*\b.*)?$`)
+	// An invite is an interview only when it says so, or names a round, a position or a
+	// role; from a personal address it needs one of the stronger words.
+	inviteJob    = re(`\b(interview\w*|round|position|role|opening|screening|panel|hiring manager|tp\d|l\d|hr discussion|technical discussion)\b`)
+	inviteStrong = re(`\b(interview\w*|round|position|role)\b`)
+	inviteRole   = re(`\b(?:position|role|job title)\b\s*[-:–—|]\s*([^|\n]+?)\s*$`)
 )
 
 const titleList = `manager|engineer|developer|architect|analyst|director|lead|head of|principal|senior|staff|` +
@@ -132,7 +143,7 @@ func LooksRelevant(fromAddr, subject string) bool {
 	if noiseSenders.MatchString(fromAddr) {
 		return false
 	}
-	return isATS(fromAddr) || subjectHint.MatchString(subject)
+	return isATS(fromAddr) || subjectHint.MatchString(subject) || inviteSubject.MatchString(subject)
 }
 
 // Classify returns ok=false for anything that isn't about one of the user's applications.
@@ -159,11 +170,72 @@ func Classify(m Message) (Result, bool) {
 			kind = b
 		}
 	}
+	title, invite := inviteTitle(m)
+	if invite && (kind == "" || kind == "update") && isInterviewInvite(m, title) {
+		kind = "interview"
+	}
 	if kind == "" {
 		return Result{}, false
 	}
-	company, role := extract(m)
+	em := m
+	if invite {
+		em.Subject = title // without the date and time, which read as part of a name
+	}
+	company, role := extract(em)
+	if invite {
+		if c, r := fromInvite(m, title); c != "" || r != "" {
+			company, role = orElse(c, company), orElse(r, role)
+		}
+	}
 	return Result{Kind: kind, Company: company, Role: role}, true
+}
+
+// inviteTitle returns a calendar invitation's meeting title. Google Calendar cuts long
+// subjects with "...", but the body starts with the whole title, so that is preferred.
+func inviteTitle(m Message) (string, bool) {
+	title := strings.TrimSpace(m.Subject)
+	if mm := inviteSubject.FindStringSubmatch(title); mm != nil {
+		title = strings.TrimSpace(mm[1])
+	} else if !m.Invite {
+		return "", false
+	}
+	prefix := strings.TrimSpace(strings.TrimRight(title, ".… "))
+	if line, _, _ := strings.Cut(strings.TrimSpace(m.Text), "\n"); prefix != "" && strings.HasPrefix(line, prefix) {
+		line, _, _ = strings.Cut(line, " Join with ") // a body whose lines were run together
+		title = strings.TrimSpace(line)
+	}
+	return title, true
+}
+
+func isInterviewInvite(m Message, title string) bool {
+	if d := domainCompany(m.FromAddr); d == "" && !isATS(m.FromAddr) {
+		return inviteStrong.MatchString(title) // a personal address: a recruiter's Gmail, or a friend
+	}
+	return inviteJob.MatchString(title)
+}
+
+// fromInvite reads the company and role from an invite title such as "Ayush Kumar -
+// TP1 Discussion - HCLSoftware - Position - Product Manager (Observability)": the company
+// is the part that matches the organizer's domain; the role follows "Position" or "Role".
+func fromInvite(m Message, title string) (company, role string) {
+	if mm := inviteRole.FindStringSubmatch(title); mm != nil {
+		role = cleanRole(mm[1])
+	}
+	if dc := domainCompany(m.FromAddr); dc != "" {
+		for _, part := range regexp.MustCompile(`\s+[-–—|]\s+`).Split(title, -1) {
+			if c := cleanCompany(part); c != "" && AppKeyPart(c) == AppKeyPart(dc) { // HCLSoftware for hcl-software.com
+				return c, role
+			}
+		}
+	}
+	return "", role
+}
+
+func orElse(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // kindOf checks the subject first (subjects are crisp), then the body. In bodies,

@@ -66,7 +66,9 @@ func fakeMicrosoft(t *testing.T, signedInAs string) (*httptest.Server, *int32) {
 				"from":             map[string]any{"emailAddress": map[string]string{"name": "Acme Careers", "address": from}}}
 		}
 		if r.URL.Query().Get("page") == "2" {
-			js(w, map[string]any{"value": []any{msg("m3", "jobs@acme.example", "Your application is received")}})
+			invite := msg("m4", "mom@example.org", "Ayush <> Acme") // a meeting request: read whatever the sender
+			invite["@odata.type"] = "#microsoft.graph.eventMessageRequest"
+			js(w, map[string]any{"value": []any{msg("m3", "jobs@acme.example", "Your application is received"), invite}})
 			return
 		}
 		js(w, map[string]any{
@@ -118,8 +120,11 @@ func TestGraphFetch(t *testing.T) {
 	if prompted != "https://microsoft.com/devicelogin ABCD-1234" {
 		t.Errorf("prompt = %q", prompted)
 	}
-	if len(got) != 2 || *bodies != 2 {
-		t.Fatalf("want 2 messages (personal mail filtered before download), got %d, bodies fetched %d", len(got), *bodies)
+	if len(got) != 3 || *bodies != 3 {
+		t.Fatalf("want 3 messages (personal mail filtered before download, invites kept), got %d, bodies fetched %d", len(got), *bodies)
+	}
+	if got[1].Invite || !got[2].Invite || got[2].ID != "m4@x" {
+		t.Errorf("meeting request not marked: %+v", got[2])
 	}
 	if got[0].ID != "m1@x" || got[0].Text != "Body of m1" || got[0].FromName != "Acme Careers" || got[1].Subject != "Your application is received" {
 		t.Errorf("unexpected messages: %+v", got)
@@ -168,7 +173,7 @@ func TestGraphRefreshTokenSignsInSilently(t *testing.T) {
 	if err := g.Fetch(context.Background(), time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC), nil, func(Message) error { n++; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if prompted || saved != "rt-rotated" || n != 3 {
+	if prompted || saved != "rt-rotated" || n != 4 {
 		t.Errorf("prompted=%v saved=%q messages=%d", prompted, saved, n)
 	}
 	g.RefreshToken = "rt-revoked"
