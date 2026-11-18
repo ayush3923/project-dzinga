@@ -16,7 +16,9 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/ayush3923/project-dzinga/services/agent/internal/core"
 )
@@ -56,13 +58,13 @@ func init() {
 		{`metrics|kpis?|okrs?|analytics|data[- ]driven|insights`, " metrics "},
 		{`customer discovery|user research|customer research|discovery`, " discovery "},
 		{`platforms?`, " platform "},
-		{`apis?\b|integrations?|sdks?`, " api "},
+		{`\bapis?\b|integrations?|sdks?`, " api "},
 		{`observability|monitoring|telemetry|apm`, " observability "},
 		{`finops|cloud cost|cost management|cost optimi[sz]ation`, " finops "},
 		{`payments?|fintech|financial services|banking`, " payments "},
 		{`growth|activation|retention|conversion|adoption|plg|product[- ]led`, " growth "},
-		{`strategy|strategic|vision`, " strategy "},
-		{`led|lead(ing)?|manag(ed|ing)|mentor(ed|ing)?|coach(ed|ing)?`, " lead "},
+		{`strategy|strategic|\bvision`, " strategy "},
+		{`\b(led|lead(ers?|ership|ing|s)?|manag(ed|ing)|mentor(ed|ing)?|coach(ed|ing)?)\b`, " lead "},
 		{`security|compliance|governance|pci|soc ?2|gdpr`, " security "},
 		{`devops|developer tools|developer experience|\bdevex\b|engineering teams?`, " developer "},
 		{`kubernetes|k8s|containers?|microservices`, " kubernetes "},
@@ -132,26 +134,140 @@ func isNumber(w string) bool {
 type unit struct {
 	label  string // what is shown as evidence
 	tokens map[string]bool
+	exp    int // index of the experience it comes from; -1 for skills and the summary
 }
 
 func units(p core.Profile) []unit {
 	var us []unit
-	for _, e := range p.Experiences {
-		us = append(us, unit{fmt.Sprintf("%s, %s", e.Title, e.Company), Tokens(e.Title)})
+	for i, e := range p.Experiences {
+		us = append(us, unit{fmt.Sprintf("%s, %s", e.Title, e.Company), Tokens(e.Title), i})
 		for _, h := range e.Highlights {
-			us = append(us, unit{fmt.Sprintf("%s (%s)", h, e.Company), Tokens(h)})
+			us = append(us, unit{fmt.Sprintf("%s (%s)", h, e.Company), Tokens(h), i})
 		}
 	}
 	for _, s := range p.Skills {
-		us = append(us, unit{"Skill: " + s, Tokens(s)})
+		us = append(us, unit{"Skill: " + s, Tokens(s), -1})
 	}
 	if p.Summary != "" {
-		us = append(us, unit{"Summary: " + p.Summary, Tokens(p.Summary)})
+		us = append(us, unit{"Summary: " + p.Summary, Tokens(p.Summary), -1})
 	}
 	return us
 }
 
+const summaryPrefix = "Summary: "
+
 var reYears = regexp.MustCompile(`(?i)(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?(?:\+\s*)?years?`)
+
+// now is the clock for roles without an end month (still current); tests pin it.
+var now = time.Now
+
+// expYears is how long a role lasted, from its start and end months ("2006-01",
+// both inclusive; no end month means current). 0 when the start is unknown.
+func expYears(e core.Experience) float64 {
+	start, err := time.Parse("2006-01", e.StartMonth)
+	if err != nil {
+		return 0
+	}
+	end, err := time.Parse("2006-01", e.EndMonth)
+	if err != nil {
+		end = now()
+	}
+	return max(0, end.AddDate(0, 1, 0).Sub(start).Hours()/24/365.25)
+}
+
+// productYears sums the product roles' durations. ok is false when a product role
+// has no start month, so the caller falls back to total years.
+func productYears(p core.Profile) (years float64, ok bool) {
+	for _, e := range p.Experiences {
+		if Function(e.Title) != "product" {
+			continue
+		}
+		if e.StartMonth == "" {
+			return 0, false
+		}
+		years, ok = years+expYears(e), true
+	}
+	return min(years, p.TotalYears), ok
+}
+
+// genericYears are words of a years clause that don't name a domain.
+var genericYears = Tokens("product products product management own owning owned company companies whose core business capabilities building built shipping delivering driving managing")
+
+// yearFigures returns each "N years" figure in s (1..30) and where its clause starts.
+func yearFigures(s string) (ns, at []int) {
+	for _, m := range reYears.FindAllStringSubmatchIndex(s, -1) {
+		var n int
+		fmt.Sscan(s[m[2]:m[3]], &n)
+		if n > 0 && n <= 30 {
+			ns, at = append(ns, n), append(at, m[0])
+		}
+	}
+	return ns, at
+}
+
+// rateYears rates a requirement that states years. The first figure is the overall
+// bar, held against years in product roles when the line is about product
+// management and the role dates allow it, else total years. A further figure
+// ("including 7+ years owning observability") is a domain bar: it counts only the
+// roles whose title or achievements name that domain.
+func rateYears(p core.Profile, us []unit, item string, ns, at []int) core.Evidence {
+	ev := core.Evidence{Requirement: item}
+	have, what := p.TotalYears, "of total experience"
+	if Tokens(item)["productmgmt"] {
+		if py, ok := productYears(p); ok {
+			have, what = py, "in product roles"
+		}
+	}
+	if have < float64(ns[0]) {
+		ev.Strength, ev.Evidence = "partial", fmt.Sprintf("%.0f years %s, short of %d", have, what, ns[0])
+		return ev
+	}
+	ev.Strength, ev.Evidence = "strong", fmt.Sprintf("%.0f years %s", have, what)
+	if len(ns) == 1 {
+		return ev
+	}
+	need := slices.Max(ns[1:])
+	domain := Tokens(item[at[1]:])
+	for t := range genericYears {
+		delete(domain, t)
+	}
+	if len(domain) == 0 {
+		if have < float64(need) {
+			ev.Strength, ev.Evidence = "partial", fmt.Sprintf("%.0f years %s, short of %d", have, what, need)
+		}
+		return ev
+	}
+	var years float64
+	var companies []string
+	for i, e := range p.Experiences {
+		for _, u := range us {
+			if u.exp == i && overlaps(u.tokens, domain) {
+				years += expYears(e)
+				companies = append(companies, e.Company)
+				break
+			}
+		}
+	}
+	switch {
+	case len(companies) == 0:
+		ev.Strength, ev.Evidence = "missing", ""
+	case years >= float64(need):
+		ev.Evidence += fmt.Sprintf("; about %.0f years in this area (%s)", years, strings.Join(companies, ", "))
+	default:
+		ev.Strength = "partial"
+		ev.Evidence += fmt.Sprintf(", but about %.0f years in this area (%s), short of %d", years, strings.Join(companies, ", "), need)
+	}
+	return ev
+}
+
+func overlaps(a, b map[string]bool) bool {
+	for t := range b {
+		if a[t] {
+			return true
+		}
+	}
+	return false
+}
 
 // Correlate rates every requirement and responsibility against the profile.
 func Correlate(p core.Profile, items []string) []core.Evidence {
@@ -159,19 +275,9 @@ func Correlate(p core.Profile, items []string) []core.Evidence {
 	out := make([]core.Evidence, 0, len(items))
 	for _, item := range items {
 		ev := core.Evidence{Requirement: item, Strength: "missing"}
-		if m := reYears.FindStringSubmatch(item); m != nil {
-			var n int
-			fmt.Sscan(m[1], &n)
-			if n > 0 && n <= 30 {
-				if p.TotalYears >= float64(n) {
-					ev.Evidence, ev.Strength = fmt.Sprintf("%.0f years of total experience", p.TotalYears), "strong"
-				} else {
-					ev.Evidence = fmt.Sprintf("%.0f years of total experience, short of %d", p.TotalYears, n)
-					ev.Strength = "partial"
-				}
-				out = append(out, ev)
-				continue
-			}
+		if ns, at := yearFigures(item); len(ns) > 0 {
+			out = append(out, rateYears(p, us, item, ns, at))
+			continue
 		}
 		req := Tokens(item)
 		if len(req) == 0 {
@@ -191,13 +297,14 @@ func Correlate(p core.Profile, items []string) []core.Evidence {
 		}
 		// Rated on the single best profile line: a requirement is "strong" only
 		// when one achievement, role or skill covers most of it. The long
-		// summary can support a requirement but never prove it alone.
+		// summary can support a requirement (with at least two shared words) but
+		// never prove it alone; it's long enough to share one word with anything.
 		lineCov := float64(bestHits) / float64(len(req))
-		summary := best >= 0 && strings.HasPrefix(us[best].label, "Summary: ")
+		summary := best >= 0 && us[best].exp < 0 && strings.HasPrefix(us[best].label, summaryPrefix)
 		switch {
 		case !summary && bestHits >= 2 && lineCov >= 0.5, !summary && bestHits >= 3 && lineCov >= 0.35:
 			ev.Strength = "strong"
-		case bestHits >= 2 && lineCov >= 0.25, bestHits == 1 && lineCov >= 0.34:
+		case bestHits >= 2 && lineCov >= 0.25, !summary && bestHits == 1 && lineCov >= 0.34:
 			ev.Strength = "partial"
 		}
 		if best >= 0 && ev.Strength != "missing" {
@@ -219,16 +326,20 @@ func trim(s string, n int) string {
 	return s[:cut] + "…"
 }
 
+// coverage weighs strong 1 and partial 0.5, except a partial resting only on the
+// summary, which counts 0.25: it shows the topic, not that it was done.
 func coverage(ev []core.Evidence) float64 {
 	if len(ev) == 0 {
 		return 0
 	}
 	var c float64
 	for _, e := range ev {
-		switch e.Strength {
-		case "strong":
+		switch {
+		case e.Strength == "strong":
 			c += 1
-		case "partial":
+		case e.Strength == "partial" && strings.HasPrefix(e.Evidence, summaryPrefix):
+			c += 0.25
+		case e.Strength == "partial":
 			c += 0.5
 		}
 	}
@@ -565,18 +676,27 @@ func highlights(ev, prefEv []core.Evidence, factors []core.FitFactor) (strengths
 	return strengths, gaps
 }
 
+// Bands is the verdict band scale, as the Claude queue runbook states it.
+const Bands = "Strong ≥ 80, Good 75–79, Moderate 60–74, Weak < 60"
+
+// Band names the verdict band for a total. The cut-offs are core-api's
+// store.FitBand, which the web app shows; keep the two (and Bands) in step.
+func Band(total int) string {
+	switch {
+	case total >= 80:
+		return "strong"
+	case total >= 75:
+		return "good"
+	case total >= 60:
+		return "moderate"
+	}
+	return "weak"
+}
+
 // Fallback writes the verdict and suggestions without a model, used when the
 // summary call is unavailable (no API credit, or it failed).
 func Fallback(r Result, post core.Posting) (string, []string) {
-	band := "a weak fit"
-	switch {
-	case r.Total >= 80:
-		band = "a strong fit"
-	case r.Total >= 65:
-		band = "a good fit"
-	case r.Total >= 50:
-		band = "a partial fit"
-	}
+	band := "a " + Band(r.Total) + " fit"
 	low := r.Factors[0]
 	for _, ff := range r.Factors {
 		if ff.Score < low.Score {

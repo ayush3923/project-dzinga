@@ -62,3 +62,11 @@ func TestRefreshQueuesFitScores(t *testing.T) {
 		t.Error("manual fit request not shown")
 	}
 }
+
+func TestFitBand(t *testing.T) {
+	for total, want := range map[int]string{100: "strong", 80: "strong", 79: "good", 75: "good", 74: "moderate", 60: "moderate", 59: "weak", 0: "weak"} {
+		if got := FitBand(total); got != want {
+			t.Errorf("FitBand(%d) = %q, want %q", total, got, want)
+		}
+	}
+}

@@ -119,7 +119,7 @@ export async function AnalysisDrawer({ a, closeHref, siblings, siblingHref }: {
           ) : (
             <>
               <div className={styles.fitHead}>
-                <FitPill total={d.fit.total} large />
+                <FitPill total={d.fit.total} band={d.fit.band} large />
                 <p>{d.fit.verdict}</p>
               </div>
               <ul className={styles.factors}>

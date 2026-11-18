@@ -1,9 +1,11 @@
+import type { FitBand } from "@/lib/api";
 import styles from "./analysis.module.css";
 
-export function FitPill({ total, large }: { total: number; large?: boolean }) {
-  const band = total >= 75 ? "high" : total >= 55 ? "mid" : "low";
+const bandName: Record<FitBand, string> = { strong: "Strong", good: "Good", moderate: "Moderate", weak: "Weak" };
+
+export function FitPill({ total, band, large }: { total: number; band: FitBand; large?: boolean }) {
   return (
-    <span className={large ? styles.pillLarge : styles.pill} data-band={band} title="Fit score out of 100">
+    <span className={large ? styles.pillLarge : styles.pill} data-band={band} title={`${bandName[band]} fit, out of 100`}>
       {total}
       {large && <small>/100</small>}
     </span>

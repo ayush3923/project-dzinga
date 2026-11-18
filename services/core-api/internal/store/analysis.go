@@ -29,6 +29,7 @@ type NextMove struct {
 
 type FitSummary struct {
 	Total     int       `json:"total"`
+	Band      string    `json:"band"`
 	Verdict   string    `json:"verdict"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -306,6 +307,7 @@ func (s *Store) latestFits(ctx context.Context, userID string) (map[int64]*FitSu
 			return nil, err
 		}
 		f.CreatedAt, _ = time.Parse(time.RFC3339, at)
+		f.Band = FitBand(f.Total)
 		out[id] = f
 	}
 	return out, rows.Err()
@@ -365,6 +367,7 @@ type Evidence struct {
 
 type Fit struct {
 	Total       int         `json:"total"`
+	Band        string      `json:"band"` // derived from Total (FitBand); ignored on save
 	Verdict     string      `json:"verdict"`
 	Model       string      `json:"model"`
 	Pipeline    string      `json:"pipeline"`
@@ -413,6 +416,21 @@ type AppDetail struct {
 var ErrBadContact = errors.New("contact does not belong to this application")
 
 var FitFactors = []string{"experience", "location", "seniority", "role_alignment", "interest_intent"}
+
+// FitBand names the verdict band for a fit total. It is the one definition of the
+// bands: the Claude queue runbook and the agent's template verdict use the same
+// cut-offs, and the web app colours scores by the band returned here.
+func FitBand(total int) string {
+	switch {
+	case total >= 80:
+		return "strong"
+	case total >= 75:
+		return "good"
+	case total >= 60:
+		return "moderate"
+	}
+	return "weak"
+}
 
 func (s *Store) Detail(ctx context.Context, userID string, appID int64) (AppDetail, error) {
 	d := AppDetail{Contacts: []Contact{}, Drafts: []OutreachDraft{}, JobLinks: []string{}}
@@ -480,6 +498,7 @@ func (s *Store) Detail(ctx context.Context, userID string, appID int64) (AppDeta
 		Scan(&fid, &f.Total, &f.Verdict, &f.Model, &f.Pipeline, &created)
 	if err == nil {
 		f.CreatedAt, _ = time.Parse(time.RFC3339, created)
+		f.Band = FitBand(f.Total)
 		f.Factors, f.Suggestions = []FitFactor{}, []string{}
 		rows, err := s.db.QueryContext(ctx, `SELECT factor, score, rationale FROM fit_factors WHERE score_id = ?
 			ORDER BY CASE factor WHEN 'experience' THEN 1 WHEN 'location' THEN 2 WHEN 'seniority' THEN 3 WHEN 'role_alignment' THEN 4 ELSE 5 END`, fid)
