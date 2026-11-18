@@ -113,6 +113,11 @@ var (
 	inviteJob    = re(`\b(interview\w*|round|position|role|opening|screening|panel|hiring manager|tp\d|l\d|hr discussion|technical discussion)\b`)
 	inviteStrong = re(`\b(interview\w*|round|position|role)\b`)
 	inviteRole   = re(`\b(?:position|role|job title)\b\s*[-:–—|]\s*([^|\n]+?)\s*$`)
+
+	// Recruitment agencies write about their clients' openings ("our client is hiring");
+	// unless it's an interview, offer or decision, that's outreach, not an application.
+	agency = re(`recruitment (compan(y|ies)|firm|agency|consultan\w*)|(staffing|placement|search) (firm|agency|compan(y|ies))|` +
+		`(for|of) (one of )?our clients?\b|on behalf of our client|our client (is|are) (hiring|looking)`)
 )
 
 const titleList = `manager|engineer|developer|architect|analyst|director|lead|head of|principal|senior|staff|` +
@@ -175,6 +180,9 @@ func Classify(m Message) (Result, bool) {
 		kind = "interview"
 	}
 	if kind == "" {
+		return Result{}, false
+	}
+	if (kind == "assessment" || kind == "update") && agency.MatchString(firstChars(m.Text, 3000)) && !re(`your application`).MatchString(m.Subject) {
 		return Result{}, false
 	}
 	em := m
@@ -294,10 +302,11 @@ var (
 		re(`^(.+?) at .+?(?: - |$)`),
 	}
 	bodyRole = []*regexp.Regexp{
-		re(`(?:for|to|in) the (?:position of |role of )?([^.\n]{2,80}?) (?:position|role|opening|job)\b`),
+		re(`(?:for|to|in) (?:the|our) (?:position of |role of )?([^.\n]{2,80}?) (?:position|role|opening|job)\b`),
 		re(`(?:position|role|job title|job)\s*[:\-]\s*([^\n]{2,80})`),
 		re(`(?:application|applying) for (?:the )?([^.\n]{2,80}?) (?:at|with)\b`),
-		re(`(?m)^\s*(?:.*?\. )?([^\n·.]{2,80}?) · [^\n·]+ · `), // LinkedIn: "Role · Company · City"
+		re(`(?:application|applying) for (?:the )?([^.\n]{2,80}?),? and (?:we|our)\b`), // Lever: "…for Senior PM, Fraud & Risk, and we are delighted"
+		re(`(?m)^\s*(?:.*?\. )?([^\n·.]{2,80}?) · [^\n·]+ · `),                         // LinkedIn: "Role · Company · City"
 	}
 	companySuffix = re(`\s*(careers?|recruiting|recruitment|talent acquisition|talent( team)?|hiring team|hr( team)?|jobs|team|people( team)?|` +
 		`workday|greenhouse|lever|icims|smartrecruiters|taleo|` +
@@ -361,6 +370,12 @@ func cleanCompany(s string) string {
 		s = s[:i]
 	}
 	s = strings.ReplaceAll(html.UnescapeString(s), "\u00a0", " ") // "LinkedIn&nbsp"
+	s = strings.Map(func(r rune) rune {                           // "Supabase 🚀": drop emoji and their joiners
+		if unicode.Is(unicode.So, r) || r == '\u200d' || r == '\ufe0f' {
+			return -1
+		}
+		return r
+	}, s)
 	s = strings.TrimSpace(strings.Trim(s, ` "'!.,:;-|`))
 	if i := strings.Index(s, ". "); i > 0 { // "Fabrikam. Unfortunately…"; before suffix stripping
 		s = s[:i]
@@ -415,6 +430,13 @@ func companyFromSender(m Message) string {
 	}
 	if c := cleanCompany(name); c != "" && !platformNames[strings.ToLower(c)] {
 		return c
+	}
+	// Workday sends from <tenant>@myworkday.com: "walmart@myworkday.com" → Walmart.
+	if d := domainOf(m.FromAddr); d == "myworkday.com" || strings.HasSuffix(d, ".myworkday.com") {
+		local := m.FromAddr[:strings.LastIndex(m.FromAddr, "@")]
+		if c := cleanCompany(local); c != "" && !strings.ContainsAny(c, "._-") && !platformNames[strings.ToLower(c)] {
+			return strings.ToUpper(c[:1]) + c[1:]
+		}
 	}
 	return domainCompany(m.FromAddr)
 }

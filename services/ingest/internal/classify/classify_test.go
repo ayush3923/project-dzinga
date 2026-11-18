@@ -454,3 +454,43 @@ func TestCalendarInvite(t *testing.T) {
 		t.Error("calendar invitations should pass the header filter")
 	}
 }
+
+// Emails from the 18 Nov refresh that came out wrong.
+func TestATSAndAgencyEmails(t *testing.T) {
+	cases := []struct {
+		name                string
+		msg                 Message
+		ok                  bool
+		kind, company, role string
+	}{
+		{name: "workday tenant in the sender address, role in capitals", msg: Message{FromAddr: "walmart@myworkday.com",
+			Subject: "Thank you for Applying!",
+			Text: "Hi Ayush, Thank you for applying to our STAFF, PRODUCT MANAGER position. Your application will be reviewed and we will " +
+				"contact you with next steps.\nThanks again!\nYour Walmart Hiring Team"},
+			ok: true, kind: "applied", company: "Walmart", role: "STAFF, PRODUCT MANAGER"},
+		{name: "emoji after the company name", msg: Message{FromAddr: "no-reply@ashbyhq.com",
+			Subject: "Thanks for applying to Supabase 🚀", Text: "Hi Ayush, Thanks for applying to Supabase. We review every application carefully."},
+			ok: true, kind: "applied", company: "Supabase"},
+		{name: "lever: role after 'application for', ending at ', and we'", msg: Message{FromAddr: "no-reply@hire.lever.co",
+			Subject: "Thank you for your application to Tala",
+			Text: "Hi Ayush, Thank you for your interest in Tala! We wanted to let you know we received your application for " +
+				"Senior Product Manager, Fraud & Risk, and we are delighted that you would consider joining our team."},
+			ok: true, kind: "applied", company: "Tala", role: "Senior Product Manager, Fraud & Risk"},
+		{name: "recruitment agency outreach is not an application", msg: Message{FromName: "Yogesh K", FromAddr: "yogesh.k@persolapac.com",
+			Subject: "Job Opportunity || Magicbricks || Bangalore ||",
+			Text: "Dear Candidate Greetings from Persol! PERSOL is one of the largest recruitment companies in Asia Pacific. " +
+				"We are hiring a Group Product Manager for our client Magicbricks. Shortlisted profiles will go through an online assessment."}},
+		{name: "agency email about the user's own application still counts", msg: Message{FromAddr: "yogesh.k@persolapac.com",
+			Subject: "Interview invitation - Magicbricks - Group Product Manager",
+			Text:    "Greetings from Persol! Our client would like to invite you to an interview for the Group Product Manager role."},
+			ok: true, kind: "interview"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r, ok := Classify(c.msg)
+			if ok != c.ok || r.Kind != c.kind || (c.company != "" && r.Company != c.company) || (c.role != "" && r.Role != c.role) {
+				t.Errorf("got %v %+v, want %v %s/%s/%s", ok, r, c.ok, c.kind, c.company, c.role)
+			}
+		})
+	}
+}
