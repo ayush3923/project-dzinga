@@ -239,3 +239,24 @@ func TestStatsAndNewsAPI(t *testing.T) {
 		t.Errorf("feed %+v", n)
 	}
 }
+
+func TestPrepAPI(t *testing.T) {
+	ts, _ := quizServer(t)
+	item := map[string]any{"company": "Acme", "role": "Senior PM", "question": "How would you size the market for agentic payroll?",
+		"why": "Round two is a product-sense case.", "approach": "Define the user, estimate bottom-up, state the assumption that matters most."}
+	prep := map[string]any{"day": "2026-11-16", "items": []any{item, item, item}}
+	if res := do(t, "PUT", ts.URL+"/internal/v1/prep", "", prep); res.StatusCode != 401 {
+		t.Errorf("prep without token: %d", res.StatusCode)
+	}
+	if res := do(t, "PUT", ts.URL+"/internal/v1/prep", "Bearer "+token, map[string]any{"day": "2026-11-16", "items": []any{item}}); res.StatusCode != 400 {
+		t.Errorf("one question accepted: %d", res.StatusCode)
+	}
+	if res := do(t, "PUT", ts.URL+"/internal/v1/prep", "Bearer "+token, prep); res.StatusCode != 204 {
+		t.Fatalf("prep: %d", res.StatusCode)
+	}
+	// The server's today is 2026-11-17; with none for today, the newest earlier day shows.
+	p := decodeBody[store.Prep](t, do(t, "GET", ts.URL+"/api/v1/prep", "", nil))
+	if p.Day != "2026-11-16" || len(p.Items) != 3 || p.Items[0].Company != "Acme" {
+		t.Errorf("prep %+v", p)
+	}
+}

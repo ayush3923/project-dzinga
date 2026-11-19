@@ -1,21 +1,23 @@
 import Link from "next/link";
-import { api, type OrgDetail } from "@/lib/api";
+import { api, type Briefing, type Figure, type OrgDetail } from "@/lib/api";
 import { shortDate } from "@/lib/format";
 import { CompanyLogo, MailboxIcons, StageBadge } from "@/components/ui";
 import { OrgAgentButton } from "./OrgAgentButton";
 import { ResearchButton } from "@/components/ResearchButton";
+import { MarkSeen } from "./MarkSeen";
 import styles from "./organizations.module.css";
 
 const SOURCE = { glassdoor: "Glassdoor (employees)", gartner_peer_insights: "Gartner Peer Insights (customers)" } as const;
 
-export async function OrgDrawer({ id }: { id: number }) {
+export async function OrgDrawer({ id, closeHref }: { id: number; closeHref: string }) {
   let o: OrgDetail;
   try {
     o = await api.organization(id);
   } catch {
     return null;
   }
-  const close = "/organizations";
+  const close = closeHref;
+  const unseen = o.briefing_unseen;
   const p = o.profile;
 
   return (
@@ -34,6 +36,9 @@ export async function OrgDrawer({ id }: { id: number }) {
           </div>
           <Link href={close} scroll={false} className={styles.close} aria-label="Close">✕</Link>
         </div>
+
+        {o.briefing && <BriefingSection b={o.briefing} unseen={unseen} />}
+        {unseen && <MarkSeen id={o.id} />}
 
         {/* Lifetime view: every application to this organization */}
         <section className={styles.section}>
@@ -166,5 +171,55 @@ export async function OrgDrawer({ id }: { id: number }) {
         </section>
       </aside>
     </>
+  );
+}
+
+/** Leaders, revenue and news Claude found for this company while building a daily quiz. */
+function BriefingSection({ b, unseen }: { b: Briefing; unseen: boolean }) {
+  const facts: { label: string; value: string; detail?: string; url?: string }[] = [];
+  if (b.ceo) facts.push({ label: "CEO", value: b.ceo, url: b.leaders_url || undefined });
+  if (b.cpo) facts.push({ label: "Product head", value: b.cpo, url: b.leaders_url || undefined });
+  const fig = (label: string, f: Figure) => f.value && facts.push({ label, value: f.value, detail: f.period, url: f.url });
+  fig("Last full year’s revenue", b.revenue_year);
+  fig("Last reported quarter", b.revenue_quarter);
+  return (
+    <section className={styles.section} aria-labelledby="brief-h">
+      <h3 id="brief-h">
+        From your daily quiz {unseen && <span className={styles.newTag}>New</span>}
+      </h3>
+      {facts.length > 0 && (
+        <dl className={styles.facts}>
+          {facts.map((f) => (
+            <div key={f.label}>
+              <dt>{f.label}</dt>
+              <dd>
+                <strong>{f.value}</strong>
+                {(f.detail || f.url) && (
+                  <span className="faint">
+                    {f.detail}
+                    {f.url && <>{f.detail && " · "}<a href={f.url} target="_blank" rel="noopener noreferrer" className={styles.link}>source</a></>}
+                  </span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {b.news.length > 0 && (
+        <ul className={styles.news}>
+          {b.news.map((n) => (
+            <li key={n.url}>
+              <span className="faint">{n.published_on ? shortDate(n.published_on) : `found ${shortDate(n.day)}`}</span>
+              <span>
+                <a href={n.url} target="_blank" rel="noopener noreferrer" className={styles.link}>{n.title}</a>
+                {n.summary && <span className="muted"> · {n.summary}</span>}
+                {n.source_title && <span className="faint"> · {n.source_title}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="faint">Updated {shortDate(b.updated_at)} · {b.model}. Figures are as published; check the source before quoting them.</p>
+    </section>
   );
 }

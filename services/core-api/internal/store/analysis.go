@@ -411,6 +411,11 @@ type AppDetail struct {
 	ResearchRequestedAt *time.Time `json:"research_requested_at"`
 	// When an Opus fit score was queued for Claude (nil when not queued).
 	FitRequestedAt *time.Time `json:"fit_requested_at"`
+	// The user's notes on interview rounds, oldest first, and Claude's newest review.
+	InterviewNotes  []InterviewNote  `json:"interview_notes"`
+	InterviewReview *InterviewReview `json:"interview_review"`
+	// When a review of the notes was queued for Claude (nil when not queued).
+	ReviewRequestedAt *time.Time `json:"review_requested_at"`
 }
 
 var ErrBadContact = errors.New("contact does not belong to this application")
@@ -446,6 +451,15 @@ func (s *Store) Detail(ctx context.Context, userID string, appID int64) (AppDeta
 		return d, err
 	}
 	if d.FitRequestedAt, err = s.researchRequestedAt(ctx, userID, "fit_score", appID); err != nil {
+		return d, err
+	}
+	if d.ReviewRequestedAt, err = s.researchRequestedAt(ctx, userID, "interview_review", appID); err != nil {
+		return d, err
+	}
+	if d.InterviewNotes, err = s.interviewNotes(ctx, appID); err != nil {
+		return d, err
+	}
+	if d.InterviewReview, err = s.latestInterviewReview(ctx, appID); err != nil {
 		return d, err
 	}
 

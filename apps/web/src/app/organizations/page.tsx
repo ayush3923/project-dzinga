@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { api, type OrgsReport, type OrgSummary } from "@/lib/api";
 import { FORTUNE_500_PARTIAL } from "@/lib/fortune500";
 import { shortDate } from "@/lib/format";
+import { ORG_FIRST_DIR, ORG_SORT_LABELS, isOrgSortKey, sortOrgs, type OrgSortKey, type SortDir } from "@/lib/sort";
 import { CompanyLogo, EmptyInbox, Offline } from "@/components/ui";
 import { PreferredEditor } from "./PreferredEditor";
 import { OrgDrawer } from "./OrgDrawer";
@@ -27,6 +28,23 @@ export default function OrganizationsPage({ searchParams }: PageProps<"/organiza
 async function Report({ searchParams }: { searchParams: PageProps<"/organizations">["searchParams"] }) {
   const sp = await searchParams;
   const orgId = /^\d+$/.test(one(sp.org) ?? "") ? Number(one(sp.org)) : undefined;
+  const s = one(sp.sort);
+  const sortKey: OrgSortKey | undefined = isOrgSortKey(s) ? s : undefined;
+  const d = one(sp.dir);
+  const dir: SortDir = d === "asc" || d === "desc" ? d : sortKey ? ORG_FIRST_DIR[sortKey] : "asc";
+  // Links keep the sort; opening or closing the drawer keeps it too.
+  const href = (patch: { org?: number | null; sort?: OrgSortKey | null; dir?: SortDir }) => {
+    const q = new URLSearchParams();
+    const k = patch.sort === null ? undefined : patch.sort ?? sortKey;
+    if (k) {
+      q.set("sort", k);
+      q.set("dir", patch.sort ? patch.dir ?? ORG_FIRST_DIR[k] : dir);
+    }
+    const o = patch.org === null ? undefined : patch.org ?? orgId;
+    if (o) q.set("org", String(o));
+    const qs = q.toString();
+    return `/organizations${qs ? `?${qs}` : ""}`;
+  };
   let rep: OrgsReport;
   try {
     rep = await api.organizations();
@@ -35,6 +53,21 @@ async function Report({ searchParams }: { searchParams: PageProps<"/organization
   }
   if (rep.organizations.length === 0) return <EmptyInbox />;
   const multi = rep.organizations.filter((o) => o.applications > 1).length;
+  const rows = sortKey ? sortOrgs(rep.organizations, sortKey, dir) : rep.organizations;
+  const header = (k: OrgSortKey) => {
+    const active = k === sortKey;
+    const next = active ? (dir === "asc" ? "desc" : "asc") : ORG_FIRST_DIR[k];
+    return (
+      <span role="columnheader" aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+        <Link href={href({ sort: k, dir: next, org: null })} scroll={false} className={styles.sortLink}
+          aria-current={active ? "true" : undefined}
+          aria-label={`Sort by ${ORG_SORT_LABELS[k].toLowerCase()}, ${next === "asc" ? "ascending" : "descending"}`}>
+          {ORG_SORT_LABELS[k]}
+          <span aria-hidden="true" className={styles.sortArrow}>{active ? (dir === "asc" ? "↑" : "↓") : "↕"}</span>
+        </Link>
+      </span>
+    );
+  };
 
   return (
     <>
@@ -48,7 +81,7 @@ async function Report({ searchParams }: { searchParams: PageProps<"/organization
           <span className="faint">{rep.preferred_mode === "auto" ? "your top 3 by applications" : "chosen by you"}</span>
         </div>
         <div className={styles.prefGrid}>
-          {rep.preferred.map((o) => <PreferredCard key={o.id} o={o} />)}
+          {rep.preferred.map((o) => <PreferredCard key={o.id} o={o} href={href({ org: o.id })} />)}
         </div>
         <PreferredEditor
           mode={rep.preferred_mode}
@@ -60,22 +93,30 @@ async function Report({ searchParams }: { searchParams: PageProps<"/organization
       <section aria-labelledby="all-h">
         <div className={styles.sectionHead}>
           <h2 id="all-h">All organizations</h2>
-          <span className="faint">most recent activity first</span>
+          <span className="faint">
+            {sortKey ? (
+              <>
+                by {ORG_SORT_LABELS[sortKey].toLowerCase()} ·{" "}
+                <Link href={href({ sort: null })} scroll={false} className={styles.sortReset}>most recent activity first</Link>
+              </>
+            ) : "most recent activity first"}
+          </span>
         </div>
         <div className={styles.table} role="table">
           <div className={styles.thead} role="row">
-            <span role="columnheader">Organization</span>
-            <span role="columnheader">Applications</span>
-            <span role="columnheader">Outcomes</span>
-            <span role="columnheader">First applied</span>
-            <span role="columnheader">Avg. response</span>
+            {header("name")}
+            {header("applications")}
+            {header("outcomes")}
+            {header("first")}
+            {header("response")}
           </div>
-          {rep.organizations.map((o) => (
-            <Link key={o.id} href={`/organizations?org=${o.id}`} scroll={false} className={styles.tr} role="row" aria-current={o.id === orgId}>
+          {rows.map((o) => (
+            <Link key={o.id} href={href({ org: o.id })} scroll={false} className={styles.tr} role="row" aria-current={o.id === orgId}>
               <span role="cell" className={styles.name}>
                 <CompanyLogo company={o.name} />
                 <strong>{o.name}</strong>
                 {o.preferred && <span className={styles.star} title="Preferred">★</span>}
+                {o.briefing_unseen && <NewBadge />}
               </span>
               <span role="cell">{o.applications} <span className="faint">({o.open} open)</span></span>
               <span role="cell"><Outcomes o={o} /></span>
@@ -89,17 +130,30 @@ async function Report({ searchParams }: { searchParams: PageProps<"/organization
         </div>
       </section>
 
-      {orgId && <OrgDrawer id={orgId} />}
+      {orgId && <OrgDrawer id={orgId} closeHref={href({ org: null })} />}
     </>
   );
 }
 
-function PreferredCard({ o }: { o: OrgSummary }) {
+/** Marks an organization with news or facts from the daily quiz that haven't been opened. */
+function NewBadge() {
   return (
-    <Link href={`/organizations?org=${o.id}`} scroll={false} className={`card ${styles.prefCard}`}>
+    <span className={styles.newBadge} title="New from today’s quiz: news and company facts to check">
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+        <path d="M8 1.5a4.5 4.5 0 0 0-4.5 4.5v2.4L2 11h12l-1.5-2.6V6A4.5 4.5 0 0 0 8 1.5Zm-1.8 11a1.8 1.8 0 0 0 3.6 0Z" fill="currentColor" />
+      </svg>
+      <span className="visually-hidden">Something new to check</span>
+    </span>
+  );
+}
+
+function PreferredCard({ o, href }: { o: OrgSummary; href: string }) {
+  return (
+    <Link href={href} scroll={false} className={`card ${styles.prefCard}`}>
       <div className={styles.prefTop}>
         <CompanyLogo company={o.name} />
         <strong>{o.name}</strong>
+        {o.briefing_unseen && <NewBadge />}
       </div>
       {o.applications === 0 ? (
         <p className="faint">No applications yet</p>

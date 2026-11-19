@@ -352,15 +352,16 @@ type PendingFeedback struct {
 	Prompt     string `json:"prompt"`
 }
 
-// Pending is Claude's quiz work: days whose quiz is requested, and answers awaiting feedback.
+// Pending is Claude's quiz work: days whose quiz, key news or prep questions are missing, and answers awaiting feedback.
 type Pending struct {
 	Quizzes  []string          `json:"quizzes"`
 	News     []string          `json:"news"` // requested days (last 3) with no key news yet
 	Feedback []PendingFeedback `json:"feedback"`
+	Prep     []string          `json:"prep"` // today, when its bonus prep questions are missing (a past day's are no use)
 }
 
 func (s *Store) Pending(ctx context.Context, userID string, now time.Time) (Pending, error) {
-	p := Pending{Quizzes: []string{}, News: []string{}, Feedback: []PendingFeedback{}}
+	p := Pending{Quizzes: []string{}, News: []string{}, Feedback: []PendingFeedback{}, Prep: []string{}}
 	if err := s.queryRows(ctx, `SELECT day FROM quiz_requests WHERE user_id = ? AND done_at IS NULL ORDER BY day`,
 		[]any{userID}, func(r *sql.Rows) error {
 			var d string
@@ -376,6 +377,16 @@ func (s *Store) Pending(ctx context.Context, userID string, now time.Time) (Pend
 		var d string
 		err := r.Scan(&d)
 		p.News = append(p.News, d)
+		return err
+	}); err != nil {
+		return p, err
+	}
+	if err := s.queryRows(ctx, `SELECT r.day FROM quiz_requests r WHERE r.user_id = ?
+		AND r.day = ? AND NOT EXISTS (SELECT 1 FROM prep_questions p WHERE p.user_id = r.user_id AND p.day = r.day)
+		ORDER BY r.day`, []any{userID, now.In(IST).Format("2006-01-02")}, func(r *sql.Rows) error {
+		var d string
+		err := r.Scan(&d)
+		p.Prep = append(p.Prep, d)
 		return err
 	}); err != nil {
 		return p, err

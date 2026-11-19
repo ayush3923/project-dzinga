@@ -51,6 +51,16 @@ paths:
       responses:
         "204": { description: Saved }
         "400": { description: Invalid items }
+  /api/v1/prep:
+    get:
+      summary: Today's three bonus prep questions for the Today page, or the newest earlier day's
+  /internal/v1/prep:
+    put:
+      summary: Replace a day's bonus prep questions (exactly 3, each with company, role, question, why and approach)
+      security: [{ internalToken: [] }]
+      responses:
+        "204": { description: Saved }
+        "400": { description: Wrong shape }
   /internal/v1/requests:
     post:
       summary: Ask for a day's quiz (default today, IST); a refresh's last step
@@ -59,7 +69,7 @@ paths:
         "202": { description: Requested (nothing happens if the quiz exists) }
   /internal/v1/pending:
     get:
-      summary: Claude's quiz work - days to build, days missing key news, and written or spoken answers awaiting feedback
+      summary: Claude's quiz work - days to build, days missing key news or prep questions, and written or spoken answers awaiting feedback
       security: [{ internalToken: [] }]
   /internal/v1/quizzes:
     put:

@@ -283,3 +283,22 @@ func (s *Server) putFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeResult(w, r, s.Store.SaveFeedback(r.Context(), s.UserID, id, body.Transcript, body.Feedback, body.Score, s.Now()), http.StatusNoContent, nil)
 }
+
+// prep is the bonus prep questions for the Today page: today's, or the newest before it.
+func (s *Server) prep(w http.ResponseWriter, r *http.Request) {
+	p, err := s.Store.LatestPrep(r.Context(), s.UserID, s.Now().In(store.IST).Format("2006-01-02"))
+	s.writeResult(w, r, err, http.StatusOK, p)
+}
+
+func (s *Server) putPrep(w http.ResponseWriter, r *http.Request) {
+	var p store.Prep
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(&p); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := p.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeResult(w, r, s.Store.SavePrep(r.Context(), s.UserID, p), http.StatusNoContent, nil)
+}

@@ -107,6 +107,8 @@ type OrgSummary struct {
 	DiagnosisReason    string         `json:"diagnosis_reason"`
 	HasProfile         bool           `json:"has_profile"`
 	HasDiagnosis       bool           `json:"has_diagnosis"`
+	// Something new from the daily quiz (news, leaders, revenue) the user hasn't opened yet.
+	BriefingUnseen bool `json:"briefing_unseen"`
 }
 
 type OrgsReport struct {
@@ -210,7 +212,8 @@ func (s *Store) Organizations(ctx context.Context, userID string, now time.Time)
 
 	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.name,
 		EXISTS (SELECT 1 FROM company_profiles p WHERE p.organization_id = o.id),
-		EXISTS (SELECT 1 FROM org_diagnoses d WHERE d.organization_id = o.id)
+		EXISTS (SELECT 1 FROM org_diagnoses d WHERE d.organization_id = o.id),
+		EXISTS (SELECT 1 FROM org_briefings b WHERE b.organization_id = o.id AND (b.seen_at IS NULL OR b.seen_at < b.updated_at))
 		FROM organizations o WHERE o.user_id = ?`, userID)
 	if err != nil {
 		return rep, err
@@ -218,7 +221,7 @@ func (s *Store) Organizations(ctx context.Context, userID string, now time.Time)
 	all := map[int64]*OrgSummary{}
 	for rows.Next() {
 		o := &OrgSummary{}
-		if err := rows.Scan(&o.ID, &o.Name, &o.HasProfile, &o.HasDiagnosis); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.HasProfile, &o.HasDiagnosis, &o.BriefingUnseen); err != nil {
 			rows.Close()
 			return rep, err
 		}
@@ -525,6 +528,7 @@ type OrgDetail struct {
 	History   []AppAnalysis   `json:"application_history"` // every application to this organization
 	Profile   *CompanyProfile `json:"profile"`
 	Diagnosis *Diagnosis      `json:"diagnosis"`
+	Briefing  *Briefing       `json:"briefing"` // from the daily quiz (nil when none)
 	// When the user queued company research for Claude in the app (nil when not queued).
 	ResearchRequestedAt *time.Time `json:"research_requested_at"`
 }
@@ -561,6 +565,9 @@ func (s *Store) Organization(ctx context.Context, userID string, orgID int64, no
 	}
 	sort.Slice(d.History, func(i, j int) bool { return d.History[i].AppliedAt.After(d.History[j].AppliedAt) })
 	if d.ResearchRequestedAt, err = s.researchRequestedAt(ctx, userID, "company_profile", orgID); err != nil {
+		return d, err
+	}
+	if d.Briefing, err = s.briefing(ctx, orgID); err != nil {
 		return d, err
 	}
 
