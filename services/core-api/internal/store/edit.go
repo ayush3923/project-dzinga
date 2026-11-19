@@ -113,6 +113,16 @@ func (s *Store) EditApplication(ctx context.Context, userID string, id int64, e 
 				WHERE id = ?`, id, id, id, other); err != nil {
 				return 0, err
 			}
+			// Pending research moves too; where the other application already has the
+			// same request pending, the duplicate is dropped.
+			if _, err := tx.ExecContext(ctx, `UPDATE OR IGNORE research_requests SET target_id = ?
+				WHERE user_id = ? AND target_id = ? AND kind IN ('job_posting', 'fit_score') AND status = 'pending'`, other, userID, id); err != nil {
+				return 0, err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM research_requests
+				WHERE user_id = ? AND target_id = ? AND kind IN ('job_posting', 'fit_score') AND status = 'pending'`, userID, id); err != nil {
+				return 0, err
+			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM applications WHERE id = ?`, id); err != nil {
 				return 0, err
 			}

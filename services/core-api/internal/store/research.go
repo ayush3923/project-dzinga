@@ -66,7 +66,9 @@ func (s *Store) PendingResearch(ctx context.Context, userID string) ([]ResearchR
 		FROM research_requests r
 		LEFT JOIN organizations o ON r.kind = 'company_profile' AND o.id = r.target_id
 		LEFT JOIN applications a ON r.kind IN ('job_posting', 'fit_score') AND a.id = r.target_id
-		WHERE r.user_id = ? AND r.status = 'pending' ORDER BY r.created_at, r.id`, userID,
+		WHERE r.user_id = ? AND r.status = 'pending'
+			AND (r.kind = 'company_profile' OR a.id IS NOT NULL) -- not for a since-merged application
+		ORDER BY r.created_at, r.id`, userID,
 		func(rows *sql.Rows) error {
 			var r ResearchRequest
 			var created string
