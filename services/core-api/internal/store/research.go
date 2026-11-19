@@ -14,9 +14,14 @@ import (
 // saving the result marks the request done. The daily quiz lives in the quiz
 // service (ADR 0008).
 //
-// Targets: an organization (company_profile) or an application (job_posting, fit_score).
+// Targets: an organization (company_profile) or an application (job_posting,
+// fit_score, interview_review). Interview reviews are queued by saving a note
+// (interview.go), not through RequestResearch.
 
 var ErrBadKind = errors.New("kind must be company_profile, job_posting or fit_score")
+
+// appKinds are the request kinds whose target is an application.
+const appKinds = `('job_posting', 'fit_score', 'interview_review')`
 
 type ResearchRequest struct {
 	ID        int64     `json:"id"`
@@ -65,7 +70,7 @@ func (s *Store) PendingResearch(ctx context.Context, userID string) ([]ResearchR
 			COALESCE(o.name, a.company || CASE WHEN a.role <> '' THEN ' — ' || a.role ELSE '' END, ''), COALESCE(a.job_url, '')
 		FROM research_requests r
 		LEFT JOIN organizations o ON r.kind = 'company_profile' AND o.id = r.target_id
-		LEFT JOIN applications a ON r.kind IN ('job_posting', 'fit_score') AND a.id = r.target_id
+		LEFT JOIN applications a ON r.kind IN `+appKinds+` AND a.id = r.target_id
 		WHERE r.user_id = ? AND r.status = 'pending'
 			AND (r.kind = 'company_profile' OR a.id IS NOT NULL) -- not for a since-merged application
 		ORDER BY r.created_at, r.id`, userID,

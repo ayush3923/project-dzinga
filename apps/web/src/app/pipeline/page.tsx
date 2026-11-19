@@ -8,6 +8,7 @@ import { StageControl } from "./StageControl";
 import { EditDetails } from "@/components/EditDetails";
 import { FitPill } from "@/app/analysis/FitPill";
 import { FitRequestButton } from "./FitRequestButton";
+import { InterviewNoteForm } from "./InterviewNoteForm";
 import styles from "./pipeline.module.css";
 
 type Params = { stage?: StageKey; q?: string; app?: string };
@@ -171,6 +172,48 @@ function FitSummary({ id, detail }: { id: number; detail: AppDetail | null }) {
   );
 }
 
+const CHANCE = { high: "Good chance", medium: "Even chance", low: "Long shot" } as const;
+
+/** The user's notes on interview rounds and Claude's read on the chances of selection. */
+function InterviewSection({ app: a, detail }: { app: Application; detail: AppDetail | null }) {
+  if (!detail || (a.stage !== "interview" && detail.interview_notes.length === 0)) return null;
+  const r = detail.interview_review;
+  const lastNote = detail.interview_notes.at(-1);
+  // A review is stale when notes were added after it.
+  const stale = r && lastNote && Date.parse(lastNote.created_at) > Date.parse(r.created_at);
+  return (
+    <section className={styles.interviewBox} aria-labelledby="iv-h">
+      <h3 id="iv-h">Interview notes</h3>
+      {r && (
+        <div className={styles.review} data-chance={r.chance}>
+          <p className={styles.reviewHead}>
+            <strong>{CHANCE[r.chance]}</strong>
+            <span className="faint">Claude’s read · {shortDate(r.created_at)}{stale && " · before your latest notes"}</span>
+          </p>
+          <p>{r.summary}</p>
+          {r.signals.length > 0 && <><p className={styles.reviewTitle}>Working for you</p><ul>{r.signals.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
+          {r.concerns.length > 0 && <><p className={styles.reviewTitle}>Watch out for</p><ul>{r.concerns.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
+          {r.next_steps.length > 0 && <><p className={styles.reviewTitle}>Before the next round</p><ul>{r.next_steps.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
+        </div>
+      )}
+      {detail.review_requested_at && (
+        <p className="faint">Queued for Claude {shortDate(detail.review_requested_at)}; the review arrives on its next run.</p>
+      )}
+      {detail.interview_notes.length > 0 && (
+        <ol className={styles.notes}>
+          {[...detail.interview_notes].reverse().map((n) => (
+            <li key={n.id}>
+              <span className="faint">{n.round > 0 ? `Round ${n.round}` : "Notes"} · {shortDate(n.created_at)}</span>
+              <p>{n.body}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+      {a.stage === "interview" && <InterviewNoteForm id={a.id} round={Math.max(a.rounds_done, 1)} />}
+    </section>
+  );
+}
+
 async function Drawer({ id, closeHref }: { id: number; closeHref: string }) {
   let data;
   try {
@@ -212,6 +255,7 @@ async function Drawer({ id, closeHref }: { id: number; closeHref: string }) {
         <EditDetails id={a.id} company={a.company} role={a.role} jobUrl={a.job_url} basePath="/pipeline?app=" />
         <StageControl id={a.id} stage={a.stage} manual={a.stage_is_manual} />
         <RoundsControl id={a.id} stage={a.stage} rounds={a.rounds_done} next={a.next_step} />
+        <InterviewSection app={a} detail={detail} />
         {a.organization_id > 0 && (
           <Link href={`/organizations?org=${a.organization_id}`} className={styles.orgLink}>
             All applications to {a.company} →

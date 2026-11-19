@@ -333,6 +333,34 @@ export async function requestFitAction(id: unknown): Promise<{ error?: string }>
   return {};
 }
 
+/** Saves the user's notes on an interview round and queues Claude's review of them. */
+export async function addInterviewNoteAction(id: unknown, round: unknown, body: unknown): Promise<{ error?: string }> {
+  if (!validId(id)) return { error: "Invalid application." };
+  if (typeof round !== "number" || !Number.isInteger(round) || round < 0 || round > 20) {
+    return { error: "Round must be between 0 and 20." };
+  }
+  const b = typeof body === "string" ? body.trim() : "";
+  if (b.length < 10 || b.length > 4000) return { error: "Write 10–4000 characters about the interview." };
+  try {
+    await api.addInterviewNote(id, { round, body: b });
+  } catch (e) {
+    return { error: message(e, "Couldn’t save your notes.") };
+  }
+  refresh();
+  return {};
+}
+
+/** Clears an organization's "something new" flag once its drawer is opened. */
+export async function briefingSeenAction(id: unknown): Promise<void> {
+  if (!validId(id)) return;
+  try {
+    await api.briefingSeen(id);
+  } catch {
+    return; // the flag simply stays until next time
+  }
+  refresh();
+}
+
 /** Answers a quiz question: an option for an MCQ, or text for the written question. */
 export async function answerQuizAction(id: unknown, answer: unknown): Promise<{ question?: QuizQuestion; error?: string }> {
   if (!validId(id)) return { error: "Invalid question." };

@@ -36,11 +36,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/quiz/questions/{id}/voice", s.getVoice)
 	mux.HandleFunc("GET /api/v1/stats", s.stats)
 	mux.HandleFunc("GET /api/v1/news", s.news)
+	mux.HandleFunc("GET /api/v1/prep", s.prep)
 	// Called by the sync service (after a refresh) and by Claude's scheduled run.
 	mux.Handle("POST /internal/v1/requests", s.requireInternal(http.HandlerFunc(s.requestQuiz)))
 	mux.Handle("GET /internal/v1/pending", s.requireInternal(http.HandlerFunc(s.pending)))
 	mux.Handle("PUT /internal/v1/quizzes", s.requireInternal(http.HandlerFunc(s.putQuiz)))
 	mux.Handle("PUT /internal/v1/news", s.requireInternal(http.HandlerFunc(s.putNews)))
+	mux.Handle("PUT /internal/v1/prep", s.requireInternal(http.HandlerFunc(s.putPrep)))
 	mux.Handle("GET /internal/v1/questions/{id}", s.requireInternal(http.HandlerFunc(s.internalQuestion)))
 	mux.Handle("PUT /internal/v1/questions/{id}/feedback", s.requireInternal(http.HandlerFunc(s.putFeedback)))
 	return s.observe(securityHeaders(mux))

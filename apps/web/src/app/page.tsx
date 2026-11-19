@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { api, type Digest } from "@/lib/api";
-import { STAGES, STAGE_META, brief, daysBetween, greeting, relativeDays } from "@/lib/format";
+import { api, type Digest, type PrepQuestion } from "@/lib/api";
+import { STAGES, STAGE_META, brief, daysBetween, greeting, relativeDays, shortDate } from "@/lib/format";
 import { CompanyLogo, EmptyInbox, MailboxIcon, MailboxIcons, Offline, StageBadge } from "@/components/ui";
 import styles from "./today.module.css";
 import { DigestCard } from "./DigestCard";
@@ -18,8 +18,9 @@ export default function TodayPage() {
 async function Today() {
   let sum;
   let digest: Digest | null = null;
+  let prep: { day: string; items: PrepQuestion[] } | null = null;
   try {
-    [sum, digest] = await Promise.all([api.summary(), api.digest().catch(() => null)]);
+    [sum, digest, prep] = await Promise.all([api.summary(), api.digest().catch(() => null), api.prep().catch(() => null)]);
   } catch {
     return <Offline />;
   }
@@ -66,6 +67,8 @@ async function Today() {
               </Link>
             ))}
           </section>
+
+          {prep && prep.items.length > 0 && <PrepCard day={prep.day} items={prep.items} now={now} />}
 
           <div className={styles.grid}>
             <section className={`card ${styles.panel}`} aria-labelledby="nudge-h">
@@ -129,6 +132,32 @@ async function Today() {
         </>
       )}
     </div>
+  );
+}
+
+/** Three bonus questions to practise, aimed at the interviews in progress. Not graded. */
+function PrepCard({ day, items, now }: { day: string; items: PrepQuestion[]; now: Date }) {
+  const today = now.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  return (
+    <section className={`card ${styles.panel}`} aria-labelledby="prep-h">
+      <div className={styles.panelHead}>
+        <h2 id="prep-h">Bonus prep</h2>
+        <span className="faint">{items.length} questions{day !== today && ` · from ${shortDate(day)}`} · say your answer out loud first</span>
+      </div>
+      <ol className={styles.prep}>
+        {items.map((q, i) => (
+          <li key={i}>
+            {q.company && <span className={styles.prepFor}>{q.company}{q.role && <span className="faint"> · {q.role}</span>}</span>}
+            <p className={styles.prepQ}>{q.question}</p>
+            <p className="faint">{q.why}</p>
+            <details>
+              <summary>How to approach it</summary>
+              <p>{q.approach}</p>
+            </details>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

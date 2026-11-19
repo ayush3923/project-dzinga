@@ -409,6 +409,78 @@ CREATE TABLE profile_photos (
 );
 `)
 
+// v13: organization briefings from the daily quiz (briefing.go), and the user's
+// interview notes with Claude's review (interview.go). The queue gains
+// interview_review; SQLite can't change a CHECK constraint, so it is rebuilt.
+var _ = appendMigration(`
+CREATE TABLE research_requests_v13 (
+	id         INTEGER PRIMARY KEY,
+	user_id    TEXT    NOT NULL,
+	kind       TEXT    NOT NULL CHECK (kind IN ('company_profile', 'job_posting', 'fit_score', 'interview_review')),
+	target_id  INTEGER NOT NULL,
+	status     TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done')),
+	created_at TEXT    NOT NULL,
+	done_at    TEXT
+);
+INSERT INTO research_requests_v13 (id, user_id, kind, target_id, status, created_at, done_at)
+	SELECT id, user_id, kind, target_id, status, created_at, done_at FROM research_requests;
+DROP TABLE research_requests;
+ALTER TABLE research_requests_v13 RENAME TO research_requests;
+CREATE UNIQUE INDEX research_requests_one_pending ON research_requests (user_id, kind, target_id) WHERE status = 'pending';
+
+-- Revenue figures are text as published ("$177.6B", "₹7,115 crore"), with the period they cover.
+CREATE TABLE org_briefings (
+	organization_id        INTEGER PRIMARY KEY REFERENCES organizations (id) ON DELETE CASCADE,
+	user_id                TEXT NOT NULL,
+	ceo                    TEXT NOT NULL DEFAULT '',
+	cpo                    TEXT NOT NULL DEFAULT '', -- chief product officer, or the nearest product head
+	revenue_year           TEXT NOT NULL DEFAULT '',
+	revenue_year_period    TEXT NOT NULL DEFAULT '',
+	revenue_year_url       TEXT NOT NULL DEFAULT '',
+	revenue_quarter        TEXT NOT NULL DEFAULT '',
+	revenue_quarter_period TEXT NOT NULL DEFAULT '',
+	revenue_quarter_url    TEXT NOT NULL DEFAULT '',
+	leaders_url            TEXT NOT NULL DEFAULT '',
+	model                  TEXT NOT NULL,
+	updated_at             TEXT NOT NULL,
+	seen_at                TEXT                       -- when the user last opened it
+);
+CREATE TABLE org_briefing_news (
+	id              INTEGER PRIMARY KEY,
+	organization_id INTEGER NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+	day             TEXT NOT NULL,                -- the quiz day it was found for
+	title           TEXT NOT NULL,
+	summary         TEXT NOT NULL DEFAULT '',
+	source_title    TEXT NOT NULL DEFAULT '',
+	url             TEXT NOT NULL,
+	published_on    TEXT NOT NULL DEFAULT '',     -- YYYY-MM-DD when known
+	UNIQUE (organization_id, url)
+);
+
+CREATE TABLE interview_notes (
+	id             INTEGER PRIMARY KEY,
+	user_id        TEXT    NOT NULL,
+	application_id INTEGER NOT NULL REFERENCES applications (id) ON DELETE CASCADE,
+	round          INTEGER NOT NULL DEFAULT 0,   -- 0 when not given
+	body           TEXT    NOT NULL,
+	created_at     TEXT    NOT NULL
+);
+CREATE INDEX idx_interview_notes_app ON interview_notes (application_id);
+CREATE TABLE interview_reviews (
+	id             INTEGER PRIMARY KEY,
+	user_id        TEXT    NOT NULL,
+	application_id INTEGER NOT NULL REFERENCES applications (id) ON DELETE CASCADE,
+	chance         TEXT    NOT NULL CHECK (chance IN ('low', 'medium', 'high')),
+	summary        TEXT    NOT NULL,
+	signals        TEXT    NOT NULL DEFAULT '[]', -- JSON: what points towards selection
+	concerns       TEXT    NOT NULL DEFAULT '[]', -- JSON: what points against it
+	next_steps     TEXT    NOT NULL DEFAULT '[]', -- JSON: what to do before the next round
+	model          TEXT    NOT NULL,
+	created_at     TEXT    NOT NULL
+);
+CREATE INDEX idx_interview_reviews_app ON interview_reviews (application_id);
+`)
+
 // Migrations are listed here, in order, and nowhere else: Go initialises files
 // alphabetically, so a migration declared in another file could run out of order.
 

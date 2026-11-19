@@ -182,7 +182,24 @@ export interface AnalysisReport {
 
 export type FactorKey = "experience" | "location" | "seniority" | "role_alignment" | "interest_intent";
 
+export interface InterviewNote { id: number; round: number; body: string; created_at: string }
+
+export interface InterviewReview {
+  chance: "low" | "medium" | "high";
+  summary: string;
+  signals: string[];
+  concerns: string[];
+  next_steps: string[];
+  model: string;
+  created_at: string;
+}
+
+export interface PrepQuestion { company: string; role: string; question: string; why: string; approach: string }
+
 export interface AppDetail {
+  interview_notes: InterviewNote[];
+  interview_review: InterviewReview | null;
+  review_requested_at: string | null;
   posting: {
     status: "found" | "not_found";
     source: string;
@@ -297,6 +314,8 @@ export interface OrgSummary {
   diagnosis_reason: string;
   has_profile: boolean;
   has_diagnosis: boolean;
+  /** Something new from the daily quiz (news, leaders, revenue) not opened yet. */
+  briefing_unseen: boolean;
 }
 
 export interface OrgsReport {
@@ -316,8 +335,25 @@ export interface CompanyProfile {
   created_at: string;
 }
 
+/** A published figure as written ("$177.6B"), with the period it covers. */
+export interface Figure { value: string; period: string; url: string }
+
+/** What Claude learned about the company while building a daily quiz. */
+export interface Briefing {
+  ceo: string;
+  cpo: string;
+  revenue_year: Figure;
+  revenue_quarter: Figure;
+  leaders_url: string;
+  news: { day: string; title: string; summary: string; source_title: string; url: string; published_on: string }[];
+  model: string;
+  updated_at: string;
+  seen_at: string | null;
+}
+
 export interface OrgDetail extends OrgSummary {
   application_history: AppAnalysis[];
+  briefing: Briefing | null;
   research_requested_at: string | null;
   profile: CompanyProfile | null;
   diagnosis: {
@@ -466,6 +502,10 @@ export const api = {
     call<OrgsReport>("/api/v1/organizations/preferred", { method: "PUT", body: JSON.stringify({ names, auto }) }),
   requestResearch: (kind: "organizations" | "applications", id: number) =>
     call<{ research_requested_at: string }>(`/api/v1/${kind}/${id}/research`, { method: "POST" }),
+  briefingSeen: (id: number) => call<void>(`/api/v1/organizations/${id}/briefing/seen`, { method: "POST" }),
+  addInterviewNote: (id: number, note: { round: number; body: string }) =>
+    call<InterviewNote>(`/api/v1/applications/${id}/interview-notes`, { method: "POST", body: JSON.stringify(note) }),
+  prep: () => quizCall<{ day: string; items: PrepQuestion[] }>("/api/v1/prep"),
   requestFit: (id: number) =>
     call<{ research_requested_at: string }>(`/api/v1/applications/${id}/fit-request`, { method: "POST" }),
   quizStats: () => quizCall<QuizStats>("/api/v1/stats"),

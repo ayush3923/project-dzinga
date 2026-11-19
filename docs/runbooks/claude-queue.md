@@ -36,10 +36,11 @@ scripts/dzq.sh GET /internal/v1/research-requests
 scripts/dzq.sh GET quiz/internal/v1/pending
 ```
 
-The first is core-api's queue (`fit_score`, `job_posting`, `company_profile`); work it
-oldest first. The second is the quiz service's: `quizzes` (days to build), `news` (days
-whose key news is missing) and `feedback` (answers awaiting feedback). Saving a result
-marks it done.
+The first is core-api's queue (`fit_score`, `job_posting`, `company_profile`,
+`interview_review`); work it oldest first. The second is the quiz service's: `quizzes`
+(days to build), `news` (days whose key news is missing), `prep` (today, when its bonus
+prep questions are missing) and `feedback` (answers awaiting feedback). Saving a result marks
+it done.
 
 ## 3. `fit_score`: score a new application
 
@@ -118,6 +119,43 @@ Save the most useful items you read as the day's key news for the profile page, 
 ]}
 ```
 
+### Organization briefings (same run, one per chosen company)
+
+For each of the 4 companies, save what you learned on its organization in core-api, so
+the organization drawer shows it and the list flags it until it is opened. Find the
+organization's id in `GET /api/v1/organizations`, then
+`scripts/dzq.sh PUT /internal/v1/organizations/{id}/briefing <file>`:
+
+- `news`: that company's items from today (≤ 5), with `day` (the quiz day), `title`,
+  `summary`, `source_title`, the https `url` and `published_on` when known. A link saved
+  before is kept as it was; each organization keeps its 10 newest items.
+- `ceo` and `cpo` (the chief product officer, or the nearest product head with their
+  title, e.g. "Jane Doe (SVP Product)"), with `leaders_url` (the page you confirmed them
+  on). Leave a name blank rather than guess.
+- `revenue_year` (the last full financial year) and `revenue_quarter` (the last reported
+  quarter): `value` as published with its currency ("$177.6B", "₹7,115 crore"),
+  `period` (e.g. "FY2025 (Apr 2024–Mar 2025)", "Q3 2026 (Jul–Sep)") and the https `url`
+  of the filing or results release. Private companies often publish only a yearly figure
+  (e.g. in regulatory filings reported by the press); leave a figure out when you can't
+  find a primary or reputable source.
+- `model`: `claude-opus-5-5`.
+
+Each save replaces the facts, so send the current CEO, CPO and figures every time.
+
+### Bonus prep questions (same run, `prep` in pending)
+
+Three questions for the Today page, saved with
+`scripts/dzq.sh PUT quiz/internal/v1/prep <file>` (exactly 3 items):
+
+- Aim them at the live interviews first: applications in the `interview` stage (then
+  `assessment`), using each one's job description, fit gaps, interview notes and next
+  step (`GET /api/v1/applications/{id}/detail`). When fewer than three are live, add
+  questions for the strongest open applications.
+- Each: `company` and `role` (blank for a general question), the `question` as an
+  interviewer would ask it, `why` it's likely to come up (one sentence, tied to the
+  posting or a fit gap) and `approach`: how to structure a strong answer from the
+  profile's own evidence (2–4 sentences). Don't write the answer for the user.
+
 ```json
 {"day": "2026-11-17", "model": "claude-opus-5-5", "questions": [
   {"kind": "mcq", "topic": "ai_news", "prompt": "…", "options": ["…", "…", "…", "…"], "answer": 2,
@@ -125,7 +163,24 @@ Save the most useful items you read as the day's key news for the profile page, 
 ]}
 ```
 
-## 5. Feedback on a written or spoken answer (quiz service, `feedback` in pending)
+## 5. `interview_review`: comment on an interview
+
+The user wrote notes on a round (how it went, the questions, any feedback) and wants a
+read on their chances.
+
+1. `GET /api/v1/applications/{id}/detail`: `interview_notes` (oldest first), the posting
+   and the fit score. Also the application (`GET /api/v1/applications/{id}`: stage,
+   rounds, next step, the email timeline) and the profile.
+2. Weigh the notes against what the role asks for. Signals that point towards selection
+   (answers that hit the posting's core requirements, positive feedback, a quick next
+   round) and against it (gaps the interviewer probed, missed questions, a long silence).
+   Be honest and calibrated: this is the user's own account, so say what's uncertain.
+3. Save with `scripts/dzq.sh POST /internal/v1/applications/{id}/interview-review <file>`:
+   `chance` (`low`, `medium` or `high`), a `summary` (2–4 sentences: the read and the
+   main reason), up to 6 `signals`, `concerns` and `next_steps` (what to prepare before
+   the next round), and `model`.
+
+## 6. Feedback on a written or spoken answer (quiz service, `feedback` in pending)
 
 1. `scripts/dzq.sh GET quiz/internal/v1/questions/{question_id}` gives the question, the
    answer and, for a spoken answer, `audio_path`.
@@ -138,13 +193,14 @@ Save the most useful items you read as the day's key news for the profile page, 
    `feedback` (what was strong, what to add or cut, one better phrasing; under 120 words)
    and `score` (0–10).
 
-## 6. `job_posting` and `company_profile`
+## 7. `job_posting` and `company_profile`
 
 - `job_posting`: step 3, parts 1–4 (find and save the posting only).
 - `company_profile`: research the organization and save with
   `PUT /internal/v1/organizations/{id}/profile` (shape in `api/core-api.yaml`).
 
-## 7. Report
+## 8. Report
 
 End with a short summary: emails synced, fit scores saved (company, score), today's quiz
-saved or not, feedback given, and anything left pending and why.
+and prep questions saved or not, briefings saved, interview reviews and feedback given,
+and anything left pending and why.

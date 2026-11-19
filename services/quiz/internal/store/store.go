@@ -88,6 +88,21 @@ CREATE TABLE news_items (
 	UNIQUE (user_id, day, position)
 );
 `,
+	// v3: three bonus prep questions a day, aimed at the user's live interviews.
+	`
+CREATE TABLE prep_questions (
+	id         INTEGER PRIMARY KEY,
+	user_id    TEXT    NOT NULL,
+	day        TEXT    NOT NULL, -- YYYY-MM-DD (IST)
+	position   INTEGER NOT NULL,
+	company    TEXT    NOT NULL DEFAULT '', -- '' for a general question
+	role       TEXT    NOT NULL DEFAULT '',
+	question   TEXT    NOT NULL,
+	why        TEXT    NOT NULL,            -- why it is likely to come up
+	approach   TEXT    NOT NULL,            -- how to structure a strong answer
+	UNIQUE (user_id, day, position)
+);
+`,
 }
 
 func Open(path string) (*Store, error) {

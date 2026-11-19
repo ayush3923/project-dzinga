@@ -49,6 +49,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/applications/{id}/fit-request", s.requestResearch("fit_score"))
 	mux.Handle("PUT /internal/v1/organizations/{id}/profile", s.requireInternal(http.HandlerFunc(s.putCompanyProfile)))
 	mux.Handle("POST /internal/v1/organizations/{id}/diagnosis", s.requireInternal(http.HandlerFunc(s.postDiagnosis)))
+	mux.Handle("PUT /internal/v1/organizations/{id}/briefing", s.requireInternal(http.HandlerFunc(s.putBriefing)))
+	mux.HandleFunc("POST /api/v1/organizations/{id}/briefing/seen", s.briefingSeen)
+	mux.HandleFunc("POST /api/v1/applications/{id}/interview-notes", s.postInterviewNote)
+	mux.Handle("POST /internal/v1/applications/{id}/interview-review", s.requireInternal(http.HandlerFunc(s.postInterviewReview)))
 	mux.HandleFunc("GET /api/v1/mailboxes", s.mailboxes)
 	mux.HandleFunc("POST /api/v1/mailboxes", s.addMailbox)
 	mux.HandleFunc("PATCH /api/v1/mailboxes/{id}", s.patchMailbox)
@@ -348,6 +352,8 @@ func (s *Server) writeResult(w http.ResponseWriter, r *http.Request, err error, 
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not found")
+	case errors.Is(err, store.ErrNotInterviewing):
+		writeErr(w, http.StatusConflict, err.Error())
 	case err != nil:
 		s.internalErr(w, r, err)
 	case body == nil:
@@ -637,4 +643,65 @@ func (s *Server) requestResearch(kind string) http.HandlerFunc {
 func (s *Server) pendingResearch(w http.ResponseWriter, r *http.Request) {
 	list, err := s.Store.PendingResearch(r.Context(), s.UserID)
 	s.writeResult(w, r, err, http.StatusOK, map[string]any{"requests": list})
+}
+
+func (s *Server) putBriefing(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var b store.Briefing
+	if !decode(w, r, &b) {
+		return
+	}
+	if err := b.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeResult(w, r, s.Store.SaveBriefing(r.Context(), s.UserID, id, b, s.Now()), http.StatusNoContent, nil)
+}
+
+func (s *Server) briefingSeen(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	s.writeResult(w, r, s.Store.MarkBriefingSeen(r.Context(), s.UserID, id, s.Now()), http.StatusNoContent, nil)
+}
+
+func (s *Server) postInterviewNote(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var n store.InterviewNote
+	if !decode(w, r, &n) {
+		return
+	}
+	if err := n.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	saved, err := s.Store.AddInterviewNote(r.Context(), s.UserID, id, n, s.Now())
+	s.writeResult(w, r, err, http.StatusCreated, saved)
+}
+
+func (s *Server) postInterviewReview(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var rv store.InterviewReview
+	if !decode(w, r, &rv) {
+		return
+	}
+	if err := rv.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeResult(w, r, s.Store.SaveInterviewReview(r.Context(), s.UserID, id, rv, s.Now()), http.StatusNoContent, nil)
 }
