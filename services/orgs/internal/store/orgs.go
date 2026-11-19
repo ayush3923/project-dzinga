@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -36,57 +37,36 @@ func ensureOrg(ctx context.Context, tx *sql.Tx, userID, name string) (int64, err
 	return id, err
 }
 
-// linkOrganization points an application at its company's organization.
-func linkOrganization(ctx context.Context, tx *sql.Tx, userID string, appID int64) error {
-	var company string
-	if err := tx.QueryRowContext(ctx, `SELECT company FROM applications WHERE id = ?`, appID).Scan(&company); err != nil {
-		return err
-	}
-	if OrgKey(company) == "" {
-		return nil
-	}
-	orgID, err := ensureOrg(ctx, tx, userID, company)
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `UPDATE applications SET organization_id = ? WHERE id = ?`, orgID, appID)
-	return err
-}
-
-// LinkAllOrganizations links applications that have no organization yet (after a migration).
-func (s *Store) LinkAllOrganizations(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT id, user_id FROM applications WHERE organization_id IS NULL`)
-	if err != nil {
-		return err
-	}
-	type app struct {
-		id   int64
-		user string
-	}
-	var apps []app
-	for rows.Next() {
-		var a app
-		if err := rows.Scan(&a.id, &a.user); err != nil {
-			rows.Close()
-			return err
-		}
-		apps = append(apps, a)
-	}
-	rows.Close()
-	for _, a := range apps {
-		if err := linkOrganization(ctx, tx, a.user, a.id); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
 // ---------- Report ----------
+
+// App is an application as core-api's analysis reports it (only what the
+// organization views need). Raw is passed through unchanged in a detail's history.
+type App struct {
+	ID        int64     `json:"id"`
+	Company   string    `json:"company"`
+	Stage     string    `json:"stage"`
+	Open      bool      `json:"open"`
+	AppliedAt time.Time `json:"applied_at"`
+	Timeline  []struct {
+		Stage string    `json:"stage"`
+		At    time.Time `json:"at"`
+	} `json:"timeline"`
+	Raw json.RawMessage `json:"-"`
+}
+
+// DecodeApps reads core-api's analysis applications, keeping each one's JSON.
+func DecodeApps(raw []json.RawMessage) ([]App, error) {
+	out := make([]App, 0, len(raw))
+	for _, r := range raw {
+		var a App
+		if err := json.Unmarshal(r, &a); err != nil {
+			return nil, err
+		}
+		a.Raw = r
+		out = append(out, a)
+	}
+	return out, nil
+}
 
 type OrgSummary struct {
 	ID                 int64          `json:"id"`
@@ -118,7 +98,7 @@ type OrgsReport struct {
 }
 
 // summarize computes one organization's statistics from its applications.
-func summarize(o *OrgSummary, apps []AppAnalysis, now time.Time) {
+func summarize(o *OrgSummary, apps []App, now time.Time) {
 	o.StageCounts = map[string]int{}
 	var waits []float64
 	var oldest time.Time
@@ -198,16 +178,13 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// Organizations groups every application by company, newest activity first.
-func (s *Store) Organizations(ctx context.Context, userID string, now time.Time) (OrgsReport, error) {
+// Organizations groups every application by company (OrgKey), newest activity first.
+// An organization is created the first time an application to it is seen.
+func (s *Store) Organizations(ctx context.Context, userID string, apps []App, now time.Time) (OrgsReport, error) {
 	rep := OrgsReport{PreferredMode: "auto", Preferred: []OrgSummary{}, Organizations: []OrgSummary{}}
-	analysis, err := s.Analysis(ctx, userID, now)
+	byOrg, err := s.groupApps(ctx, userID, apps)
 	if err != nil {
 		return rep, err
-	}
-	byOrg := map[int64][]AppAnalysis{}
-	for _, a := range analysis.Applications {
-		byOrg[a.OrganizationID] = append(byOrg[a.OrganizationID], a)
 	}
 
 	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.name,
@@ -451,7 +428,7 @@ func (s *Store) SaveCompanyProfile(ctx context.Context, userID string, orgID int
 	if err := ownsOrg(ctx, tx, userID, orgID); err != nil {
 		return err
 	}
-	if err := markResearchDone(ctx, tx, userID, "company_profile", orgID, now); err != nil {
+	if err := markResearchDone(ctx, tx, userID, orgID, now); err != nil {
 		return err
 	}
 	for _, q := range []string{`DELETE FROM company_news WHERE organization_id = ?`, `DELETE FROM company_products WHERE organization_id = ?`,
@@ -525,20 +502,20 @@ func (s *Store) SaveDiagnosis(ctx context.Context, userID string, orgID int64, d
 
 type OrgDetail struct {
 	OrgSummary
-	History   []AppAnalysis   `json:"application_history"` // every application to this organization
-	Profile   *CompanyProfile `json:"profile"`
-	Diagnosis *Diagnosis      `json:"diagnosis"`
-	Briefing  *Briefing       `json:"briefing"` // from the daily quiz (nil when none)
+	History   []json.RawMessage `json:"application_history"` // every application to this organization, as core-api reports it
+	Profile   *CompanyProfile   `json:"profile"`
+	Diagnosis *Diagnosis        `json:"diagnosis"`
+	Briefing  *Briefing         `json:"briefing"` // from the daily quiz (nil when none)
 	// When the user queued company research for Claude in the app (nil when not queued).
 	ResearchRequestedAt *time.Time `json:"research_requested_at"`
 }
 
-func (s *Store) Organization(ctx context.Context, userID string, orgID int64, now time.Time) (OrgDetail, error) {
+func (s *Store) Organization(ctx context.Context, userID string, orgID int64, apps []App, now time.Time) (OrgDetail, error) {
 	var d OrgDetail
 	if err := ownsOrg(ctx, s.db, userID, orgID); err != nil {
 		return d, err
 	}
-	rep, err := s.Organizations(ctx, userID, now)
+	rep, err := s.Organizations(ctx, userID, apps, now)
 	if err != nil {
 		return d, err
 	}
@@ -553,18 +530,17 @@ func (s *Store) Organization(ctx context.Context, userID string, orgID int64, no
 		}
 		summarize(&d.OrgSummary, nil, now)
 	}
-	analysis, err := s.Analysis(ctx, userID, now)
+	byOrg, err := s.groupApps(ctx, userID, apps)
 	if err != nil {
 		return d, err
 	}
-	d.History = []AppAnalysis{}
-	for _, a := range analysis.Applications {
-		if a.OrganizationID == orgID {
-			d.History = append(d.History, a)
-		}
+	mine := byOrg[orgID]
+	sort.Slice(mine, func(i, j int) bool { return mine[i].AppliedAt.After(mine[j].AppliedAt) })
+	d.History = []json.RawMessage{}
+	for _, a := range mine {
+		d.History = append(d.History, a.Raw)
 	}
-	sort.Slice(d.History, func(i, j int) bool { return d.History[i].AppliedAt.After(d.History[j].AppliedAt) })
-	if d.ResearchRequestedAt, err = s.researchRequestedAt(ctx, userID, "company_profile", orgID); err != nil {
+	if d.ResearchRequestedAt, err = s.researchRequestedAt(ctx, userID, orgID); err != nil {
 		return d, err
 	}
 	if d.Briefing, err = s.briefing(ctx, orgID); err != nil {
@@ -655,6 +631,20 @@ func (s *Store) Organization(ctx context.Context, userID string, orgID int64, no
 	return d, nil
 }
 
+func (s *Store) queryRows(ctx context.Context, q string, args []any, each func(*sql.Rows) error) error {
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if err := each(rows); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
 func (s *Store) scanRows(ctx context.Context, q string, arg any, each func(*sql.Rows) error) error {
 	rows, err := s.db.QueryContext(ctx, q, arg)
 	if err != nil {
@@ -667,4 +657,69 @@ func (s *Store) scanRows(ctx context.Context, q string, arg any, each func(*sql.
 		}
 	}
 	return rows.Err()
+}
+
+// groupApps maps each application to its organization, creating organizations
+// for companies seen for the first time.
+func (s *Store) groupApps(ctx context.Context, userID string, apps []App) (map[int64][]App, error) {
+	ids := map[string]int64{}
+	err := s.queryRows(ctx, `SELECT key, id FROM organizations WHERE user_id = ?`, []any{userID}, func(r *sql.Rows) error {
+		var k string
+		var id int64
+		err := r.Scan(&k, &id)
+		ids[k] = id
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64][]App{}
+	var tx *sql.Tx
+	defer func() {
+		if tx != nil {
+			tx.Rollback()
+		}
+	}()
+	for _, a := range apps {
+		k := OrgKey(a.Company)
+		if k == "" {
+			continue
+		}
+		id, ok := ids[k]
+		if !ok {
+			if tx == nil {
+				if tx, err = s.db.BeginTx(ctx, nil); err != nil {
+					return nil, err
+				}
+			}
+			if id, err = ensureOrg(ctx, tx, userID, a.Company); err != nil {
+				return nil, err
+			}
+			ids[k] = id
+		}
+		out[id] = append(out[id], a)
+	}
+	if tx != nil {
+		err = tx.Commit()
+		tx = nil
+	}
+	return out, err
+}
+
+// OrgID finds an organization by company name (ErrNotFound when there is none).
+func (s *Store) OrgID(ctx context.Context, userID, company string) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM organizations WHERE user_id = ? AND key = ?`, userID, OrgKey(company)).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return id, err
+}
+
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }

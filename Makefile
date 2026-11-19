@@ -18,15 +18,17 @@ SINCE_FLAG = $(if $(SINCE),--since $(SINCE),)
 CORE_PORT ?= 8091
 CORE_URL = http://127.0.0.1:$(CORE_PORT)
 
-.PHONY: help env core-api ingest-service quiz agent web ingest-gmail preview-gmail ingest-yahoo preview-yahoo ingest-outlook preview-outlook demo test test-go test-web vuln images k8s-validate
+.PHONY: help env core-api ingest-service quiz orgs orgs-import agent web ingest-gmail preview-gmail ingest-yahoo preview-yahoo ingest-outlook preview-outlook demo test test-go test-web vuln images k8s-validate
 
 help:
 	@echo "make core-api                        start the API on 127.0.0.1:$(CORE_PORT)"
 	@echo "make ingest-service                  start the sync service on 127.0.0.1:8083 (Sync now, mailboxes)"
 	@echo "make quiz                            start the quiz service on 127.0.0.1:8084 (daily quiz)"
+	@echo "make orgs                            start the organizations service on 127.0.0.1:8085"
+	@echo "make orgs-import FROM=<core db>      once: copy organizations from core-api's database (before its v14)"
 	@echo "make agent                           start the Claude agent on 127.0.0.1:8082 (needs ANTHROPIC_API_KEY in .env.local)"
 	@echo "make web                             start the web app on http://localhost:3000"
-	@echo "make images REGISTRY=<ecr>           build and push all five container images"
+	@echo "make images REGISTRY=<ecr>           build and push all six container images"
 	@echo "make k8s-validate                    validate and lint the Kubernetes manifests"
 	@echo "make preview-yahoo EMAIL=you@yahoo.com  dry run: list job emails found, send nothing"
 	@echo "make ingest-yahoo EMAIL=you@yahoo.com   import job emails from Yahoo"
@@ -57,12 +59,23 @@ ingest-service: env
 quiz: env
 	cd services/quiz && DZ_INTERNAL_TOKEN=$(TOKEN) DZ_QUIZ_ADDR=127.0.0.1:8084 DZ_QUIZ_DB_PATH=$(CURDIR)/data/quiz.db go run .
 
+# Organizations (ADR 0010): its own database (data/orgs.db); reads applications from core-api.
+ORGS_URL = http://127.0.0.1:8085
+orgs: env
+	cd services/orgs && DZ_INTERNAL_TOKEN=$(TOKEN) DZ_ORGS_ADDR=127.0.0.1:8085 DZ_ORGS_DB_PATH=$(CURDIR)/data/orgs.db \
+		DZ_CORE_URL=$(CORE_URL) go run .
+
+# One-time move of organization data out of core-api, read-only from FROM (a backup works).
+orgs-import: env
+	@test -n "$(FROM)" || { echo "usage: make orgs-import FROM=data/backups/dzinga-….db"; exit 1; }
+	cd services/orgs && DZ_ORGS_DB_PATH=$(CURDIR)/data/orgs.db go run . -import-core "$(abspath $(FROM))"
+
 agent: env
 	@grep -q '^ANTHROPIC_API_KEY=.' $(ENV_FILE) || { echo "Add ANTHROPIC_API_KEY=... to .env.local first (it stays on your Mac)"; exit 1; }
-	cd services/agent && DZ_INTERNAL_TOKEN=$(TOKEN) DZ_CORE_URL=$(CORE_URL) ANTHROPIC_API_KEY=$(ANTHROPIC_KEY) go run .
+	cd services/agent && DZ_INTERNAL_TOKEN=$(TOKEN) DZ_CORE_URL=$(CORE_URL) DZ_ORGS_URL=$(ORGS_URL) ANTHROPIC_API_KEY=$(ANTHROPIC_KEY) go run .
 
 web: env
-	cd apps/web && DZ_INTERNAL_TOKEN=$(TOKEN) CORE_API_URL=$(CORE_URL) DZ_DISPLAY_NAME=$$(grep DZ_DISPLAY_NAME ../../$(ENV_FILE) | cut -d= -f2) pnpm dev
+	cd apps/web && DZ_INTERNAL_TOKEN=$(TOKEN) CORE_API_URL=$(CORE_URL) ORGS_API_URL=$(ORGS_URL) DZ_DISPLAY_NAME=$$(grep DZ_DISPLAY_NAME ../../$(ENV_FILE) | cut -d= -f2) pnpm dev
 
 preview-yahoo:
 	@test -n "$(EMAIL)" || { echo "usage: make preview-yahoo EMAIL=you@yahoo.com"; exit 1; }
@@ -109,6 +122,7 @@ test-go:
 	cd services/ingest && go vet ./... && go test -race -cover ./...
 	cd services/agent && go vet ./... && go test -race -cover ./...
 	cd services/quiz && go vet ./... && go test -race -cover ./...
+	cd services/orgs && go vet ./... && go test -race -cover ./...
 
 test-web:
 	cd apps/web && pnpm typecheck && pnpm lint && pnpm test
@@ -118,6 +132,7 @@ vuln:
 	cd services/ingest && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	cd services/agent && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	cd services/quiz && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	cd services/orgs && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	cd apps/web && pnpm audit --prod
 
 # Container images (ADR 0006). Needs Docker with buildx and an ECR login:
@@ -127,7 +142,7 @@ IMAGE_TAG ?= $$(git rev-parse --short HEAD)
 images:
 	@test -n "$(REGISTRY)" || { echo "Set REGISTRY=<account>.dkr.ecr.ap-south-1.amazonaws.com"; exit 1; }
 	@test -z "$$(git status --porcelain)" || { echo "Commit first: image tags name a git commit"; exit 1; }
-	for s in core-api agent ingest quiz; do \
+	for s in core-api agent ingest quiz orgs; do \
 		docker buildx build --platform $(PLATFORM) --provenance=true --sbom=true --push -t $(REGISTRY)/dzinga/$$s:$(IMAGE_TAG) services/$$s || exit 1; \
 	done
 	docker buildx build --platform $(PLATFORM) --provenance=true --sbom=true --push -t $(REGISTRY)/dzinga/web:$(IMAGE_TAG) apps/web

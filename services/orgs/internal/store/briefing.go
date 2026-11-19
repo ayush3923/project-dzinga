@@ -49,7 +49,9 @@ type Briefing struct {
 	SeenAt         *time.Time     `json:"seen_at"`
 }
 
-func httpsOrEmpty(u string) bool { return u == "" || (strings.HasPrefix(u, "https://") && len(u) <= 2000) }
+func httpsOrEmpty(u string) bool {
+	return u == "" || (strings.HasPrefix(u, "https://") && len(u) <= 2000)
+}
 
 func (b Briefing) Validate() error {
 	if b.Model == "" {

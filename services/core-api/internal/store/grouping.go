@@ -209,9 +209,6 @@ func (s *Store) SplitRolelessApplications(ctx context.Context) (int, error) {
 				WHERE id = ?`, id, id, id, id); err != nil {
 				return 0, err
 			}
-			if err := linkOrganization(ctx, tx, a.user, id); err != nil {
-				return 0, err
-			}
 		}
 	}
 	return created, tx.Commit()

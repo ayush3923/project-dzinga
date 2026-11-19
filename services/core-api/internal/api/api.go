@@ -40,17 +40,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/intent", s.putIntent)
 	mux.HandleFunc("GET /api/v1/analysis", s.analysis)
 	mux.HandleFunc("GET /api/v1/applications/{id}/detail", s.detail)
-	mux.HandleFunc("GET /api/v1/organizations", s.organizations)
-	mux.HandleFunc("GET /api/v1/organizations/{id}", s.organization)
-	mux.HandleFunc("PUT /api/v1/organizations/preferred", s.putPreferred)
-	mux.HandleFunc("POST /api/v1/organizations/{id}/research", s.requestResearch("company_profile"))
 	mux.HandleFunc("POST /api/v1/applications/{id}/research", s.requestResearch("job_posting"))
 	mux.Handle("GET /internal/v1/research-requests", s.requireInternal(http.HandlerFunc(s.pendingResearch)))
 	mux.HandleFunc("POST /api/v1/applications/{id}/fit-request", s.requestResearch("fit_score"))
-	mux.Handle("PUT /internal/v1/organizations/{id}/profile", s.requireInternal(http.HandlerFunc(s.putCompanyProfile)))
-	mux.Handle("POST /internal/v1/organizations/{id}/diagnosis", s.requireInternal(http.HandlerFunc(s.postDiagnosis)))
-	mux.Handle("PUT /internal/v1/organizations/{id}/briefing", s.requireInternal(http.HandlerFunc(s.putBriefing)))
-	mux.HandleFunc("POST /api/v1/organizations/{id}/briefing/seen", s.briefingSeen)
 	mux.HandleFunc("POST /api/v1/applications/{id}/interview-notes", s.postInterviewNote)
 	mux.Handle("POST /internal/v1/applications/{id}/interview-review", s.requireInternal(http.HandlerFunc(s.postInterviewReview)))
 	mux.HandleFunc("GET /api/v1/mailboxes", s.mailboxes)
@@ -431,84 +423,6 @@ func (s *Server) postUsage(w http.ResponseWriter, r *http.Request) {
 	s.writeResult(w, r, s.Store.RecordUsage(r.Context(), s.UserID, u, s.Now()), http.StatusNoContent, nil)
 }
 
-func (s *Server) organizations(w http.ResponseWriter, r *http.Request) {
-	rep, err := s.Store.Organizations(r.Context(), s.UserID, s.Now())
-	if err != nil {
-		s.internalErr(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, rep)
-}
-
-func (s *Server) organization(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	d, err := s.Store.Organization(r.Context(), s.UserID, id, s.Now())
-	s.writeResult(w, r, err, http.StatusOK, d)
-}
-
-func (s *Server) putPreferred(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Names []string `json:"names"`
-		Auto  bool     `json:"auto"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	if len(body.Names) > 20 {
-		writeErr(w, http.StatusBadRequest, "at most 20 preferred organizations")
-		return
-	}
-	for _, n := range body.Names {
-		if len(n) > 120 || store.OrgKey(n) == "" {
-			writeErr(w, http.StatusBadRequest, "each name needs letters or digits and at most 120 characters")
-			return
-		}
-	}
-	if err := s.Store.SetPreferred(r.Context(), s.UserID, body.Names, body.Auto); err != nil {
-		s.internalErr(w, r, err)
-		return
-	}
-	s.organizations(w, r)
-}
-
-func (s *Server) putCompanyProfile(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	var p store.CompanyProfile
-	if !decode(w, r, &p) {
-		return
-	}
-	if err := p.Validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.writeResult(w, r, s.Store.SaveCompanyProfile(r.Context(), s.UserID, id, p, s.Now()), http.StatusNoContent, nil)
-}
-
-func (s *Server) postDiagnosis(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	var d store.Diagnosis
-	if !decode(w, r, &d) {
-		return
-	}
-	if err := d.Validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.writeResult(w, r, s.Store.SaveDiagnosis(r.Context(), s.UserID, id, d, s.Now()), http.StatusNoContent, nil)
-}
-
 func (s *Server) mailboxes(w http.ResponseWriter, r *http.Request) {
 	m, err := s.Store.Mailboxes(r.Context(), s.UserID)
 	if err != nil {
@@ -643,32 +557,6 @@ func (s *Server) requestResearch(kind string) http.HandlerFunc {
 func (s *Server) pendingResearch(w http.ResponseWriter, r *http.Request) {
 	list, err := s.Store.PendingResearch(r.Context(), s.UserID)
 	s.writeResult(w, r, err, http.StatusOK, map[string]any{"requests": list})
-}
-
-func (s *Server) putBriefing(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	var b store.Briefing
-	if !decode(w, r, &b) {
-		return
-	}
-	if err := b.Validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.writeResult(w, r, s.Store.SaveBriefing(r.Context(), s.UserID, id, b, s.Now()), http.StatusNoContent, nil)
-}
-
-func (s *Server) briefingSeen(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	s.writeResult(w, r, s.Store.MarkBriefingSeen(r.Context(), s.UserID, id, s.Now()), http.StatusNoContent, nil)
 }
 
 func (s *Server) postInterviewNote(w http.ResponseWriter, r *http.Request) {

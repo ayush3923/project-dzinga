@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-19
 - **Builds on:** ADR 0007 (Claude's work queue), ADR 0008 (the quiz service)
+- **Amended by:** ADR 0010 (briefings moved to the organizations service)
 
 ## Context
 

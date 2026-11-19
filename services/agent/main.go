@@ -43,6 +43,7 @@ func main() {
 	}
 	a := &analyze.Agent{
 		Core:   core.New(env("DZ_CORE_URL", "http://127.0.0.1:8081"), token),
+		Orgs:   core.New(env("DZ_ORGS_URL", "http://127.0.0.1:8085"), token),
 		Router: &router.Router{LLM: llm.NewClaude(key), Routes: routes, Log: log},
 		Log:    log,
 		Fetch:  analyze.NewFetch(),

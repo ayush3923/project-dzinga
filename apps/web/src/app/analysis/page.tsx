@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { api, type AnalysisReport, type AppAnalysis, type DurationStat } from "@/lib/api";
-import { STAGE_META } from "@/lib/format";
+import { STAGE_META, companyKey } from "@/lib/format";
 import { FIRST_DIR, SORT_LABELS, isSortKey, sortApps, type SortDir, type SortKey } from "@/lib/sort";
 import { CompanyLogo, EmptyInbox, MailboxIcons, Offline, StageBadge } from "@/components/ui";
 import { AnalysisDrawer } from "./AnalysisDrawer";
@@ -128,7 +128,7 @@ async function Report({ searchParams }: { searchParams: PageProps<"/analysis">["
 
       {selected && (
         <AnalysisDrawer a={selected} closeHref={href({})}
-          siblings={rep.applications.filter((x) => x.organization_id === selected.organization_id && x.id !== selected.id)}
+          siblings={rep.applications.filter((x) => companyKey(x.company) === companyKey(selected.company) && x.id !== selected.id)}
           siblingHref={(id) => href({ view: "all", app: id })} />
       )}
     </>

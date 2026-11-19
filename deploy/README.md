@@ -1,6 +1,6 @@
 # Deploying Dzinga to k3s
 
-Images and manifests for the five services (ADR 0006; the quiz service is ADR 0008). **Not yet production ready:** read
+Images and manifests for the six services (ADR 0006; the quiz service is ADR 0008, the organizations service ADR 0010). **Not yet production ready:** read
 the release blockers first.
 
 ```
@@ -14,7 +14,7 @@ deploy/k8s/components/public-ingress/  opt-in public access (blocked, see below)
 | # | Blocker | Why it matters | Rule |
 |---|---|---|---|
 | 1 | Ingest reads mailbox credentials only from the macOS Keychain | Mail sync can't work on Linux. Needs a Secrets Manager or Parameter Store backend behind `secrets.Store` | 1 |
-| 2 | The web app has no sign-in, and the `/api/*` routes of core-api and the quiz service have no authentication | Anyone who reaches them sees all job and mail data. NetworkPolicy is the only control today, so don't enable public ingress | 1 |
+| 2 | The web app has no sign-in, and the `/api/*` routes of core-api, the quiz service and the organizations service have no authentication | Anyone who reaches them sees all job and mail data. NetworkPolicy is the only control today, so don't enable public ingress | 1 |
 | 3 | Services talk plain HTTP inside the cluster | Rule 1 requires TLS between services. Needs an owner decision, because a service mesh also uses memory on a small node | 1, 2 |
 | 4 | All services share one internal token | The agent fetches arbitrary public URLs, making it the most exposed service. If compromised, it can call every internal route on core-api | 1 |
 | 5 | CSP allows `unsafe-inline` scripts | Weakens XSS protection. Needs per-request nonces, as the TODO in `next.config.ts` says | 1 |

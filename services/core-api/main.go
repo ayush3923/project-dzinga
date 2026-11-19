@@ -54,10 +54,6 @@ func main() {
 		log.Error("seed mailboxes", "err", err)
 		os.Exit(1)
 	}
-	if err := st.LinkAllOrganizations(context.Background()); err != nil {
-		log.Error("link organizations", "err", err)
-		os.Exit(1)
-	}
 	// Stage history is derived data: rebuild it so rule changes apply to old emails too.
 	if err := st.RebuildAllHistory(context.Background()); err != nil {
 		log.Error("rebuild stage history", "err", err)

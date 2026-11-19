@@ -23,10 +23,6 @@ func TestEditApplicationDetails(t *testing.T) {
 	if len(det.JobLinks) != 1 || det.JobLinks[0] != app.JobURL {
 		t.Errorf("job links: %+v", det.JobLinks)
 	}
-	orgs := decodeBody[store.OrgsReport](t, do(t, "GET", ts.URL+"/api/v1/organizations", "", nil))
-	if len(orgs.Organizations) != 1 || orgs.Organizations[0].Name != "Accenture" {
-		t.Errorf("organization not relinked: %+v", orgs.Organizations)
-	}
 	// A later email for the corrected company and role finds the edited application.
 	ingest(t, ts, ev("u2", "Accenture", "AI Technology Architect", "rejected", now))
 	app = decodeBody[struct{ Application store.Application }](t, do(t, "GET", ts.URL+"/api/v1/applications/1", "", nil)).Application

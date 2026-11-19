@@ -15,7 +15,7 @@ metadata:
 spec:
   podSelector:
     matchExpressions:
-      - { key: app, operator: In, values: [web, ingest, agent] }
+      - { key: app, operator: In, values: [web, ingest, agent, orgs] }
   policyTypes: [Egress]
   egress:
     - to:
@@ -27,7 +27,7 @@ spec:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
 ---
-# core-api needs no egress at all.
+# core-api needs no egress at all. orgs reads its analysis (ADR 0010).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -40,7 +40,7 @@ spec:
     - from:
         - podSelector:
             matchExpressions:
-              - { key: app, operator: In, values: [web, ingest, agent] }
+              - { key: app, operator: In, values: [web, ingest, agent, orgs] }
       ports:
         - { protocol: TCP, port: 8091 }
 ---
@@ -61,6 +61,29 @@ spec:
               - { key: app, operator: In, values: [web, ingest] }
       ports:
         - { protocol: TCP, port: 8084 }
+---
+# The organizations service (ADR 0010): web and agent call it; it calls only core-api.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orgs
+spec:
+  podSelector:
+    matchLabels: { app: orgs }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [web, agent] }
+      ports:
+        - { protocol: TCP, port: 8085 }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app: core-api }
+      ports:
+        - { protocol: TCP, port: 8091 }
 ---
 # agent reads job postings from any public site and calls the Claude API, so egress can't
 # be an allowlist of hosts. Private ranges and the EC2 metadata service stay blocked, as a
@@ -86,6 +109,11 @@ spec:
             matchLabels: { app: core-api }
       ports:
         - { protocol: TCP, port: 8091 }
+    - to:
+        - podSelector:
+            matchLabels: { app: orgs }
+      ports:
+        - { protocol: TCP, port: 8085 }
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -163,3 +191,8 @@ spec:
             matchLabels: { app: quiz }
       ports:
         - { protocol: TCP, port: 8084 }
+    - to:
+        - podSelector:
+            matchLabels: { app: orgs }
+      ports:
+        - { protocol: TCP, port: 8085 }

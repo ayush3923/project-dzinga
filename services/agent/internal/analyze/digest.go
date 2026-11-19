@@ -55,6 +55,12 @@ func (a *Agent) Digest(ctx context.Context) (core.Digest, error) {
 	if d.RefreshID == 0 || d.Model != "template" {
 		return d, nil
 	}
+	// Suggested companies come from the organizations service; the digest reads fine without them.
+	if s, err := a.Orgs.Suggestions(ctx); err == nil {
+		d.Suggested = s
+	} else {
+		a.Log.Warn("digest_suggestions_unavailable", "reason", err.Error())
+	}
 	var out struct {
 		Text string `json:"text"`
 	}

@@ -1,0 +1,102 @@
+# The organizations service (ADR 0010): its own SQLite database on its own volume. It
+# reads applications from core-api to group them by company.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orgs
+automountServiceAccountToken: false
+---
+# local-path deletes the data when this claim is deleted: never run `kubectl delete -k`
+# against this namespace without a fresh snapshot (deploy/README.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: orgs-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi # profiles, diagnoses and briefings: text only
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orgs
+spec:
+  type: ClusterIP
+  selector:
+    app: orgs
+  ports:
+    - { name: http, port: 8085, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orgs
+spec:
+  replicas: 1 # SQLite allows one writer, and the volume lives on one node
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: orgs
+  template:
+    metadata:
+      labels:
+        app: orgs
+    spec:
+      serviceAccountName: orgs
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # The on-demand server node: on a spot node, the data would go when the node does.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: orgs
+          image: dzinga/orgs:unset
+          ports:
+            - { name: http, containerPort: 8085 }
+          env:
+            - { name: DZ_ORGS_ADDR, value: "0.0.0.0:8085" }
+            - { name: DZ_ORGS_DB_PATH, value: /data/orgs.db }
+            - { name: DZ_CORE_URL, value: "http://core-api:8091" }
+            - name: DZ_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef: { name: dzinga-internal, key: internal-token }
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: orgs-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

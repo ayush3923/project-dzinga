@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Digest } from "@/lib/api";
+import type { Digest, Suggestion } from "@/lib/api";
 import { StageBadge } from "@/components/ui";
 import type { EventKind } from "@/lib/api";
 import styles from "./today.module.css";
@@ -11,7 +11,7 @@ function when(iso: string) {
 }
 
 /** The morning digest: a 100-word read, with the facts behind it one click away. */
-export function DigestCard({ d }: { d: Digest }) {
+export function DigestCard({ d, suggested }: { d: Digest; suggested: Suggestion[] | null }) {
   const t = d.trends;
   return (
     <section className={`ai-frame ${styles.panel} ${styles.digest}`} aria-labelledby="digest-h">
@@ -63,8 +63,8 @@ export function DigestCard({ d }: { d: Digest }) {
           </div>
           <div>
             <h3>Suggested companies</h3>
-            {d.suggested.length === 0 ? <p className="faint">Add preferred companies in Organizations to get suggestions.</p> : (
-              <ul>{d.suggested.map((s) => (
+            {suggested === null ? <p className="faint">The organizations service isn’t reachable.</p> : suggested.length === 0 ? <p className="faint">Add preferred companies in Organizations to get suggestions.</p> : (
+              <ul>{suggested.map((s) => (
                 <li key={s.id}><Link href={`/organizations?org=${s.id}`}><strong>{s.name}</strong> <span className="muted">· {s.reason}</span></Link></li>
               ))}</ul>
             )}

@@ -39,14 +39,20 @@ type Core interface {
 	SaveFit(ctx context.Context, id int64, f core.Fit) error
 	SaveDraft(ctx context.Context, id int64, d core.Draft) (int64, error)
 	RecordUsage(ctx context.Context, u core.Usage) error
-	Organization(ctx context.Context, id int64) (core.Organization, error)
-	SaveDiagnosis(ctx context.Context, id int64, d core.Diagnosis) error
 	Digest(ctx context.Context) (core.Digest, error)
 	SaveDigest(ctx context.Context, refreshID int64, text, model string) error
 }
 
+// Orgs is the organizations service (ADR 0010): the same client type, another base URL.
+type Orgs interface {
+	Organization(ctx context.Context, id int64) (core.Organization, error)
+	SaveDiagnosis(ctx context.Context, id int64, d core.Diagnosis) error
+	Suggestions(ctx context.Context) ([]core.Suggestion, error)
+}
+
 type Agent struct {
 	Core   Core
+	Orgs   Orgs
 	Router *router.Router
 	Log    *slog.Logger
 	// Fetch reads a posting from a link (jd.Fetch in production).

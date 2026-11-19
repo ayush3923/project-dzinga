@@ -141,20 +141,6 @@ paths:
         "204": { description: Saved }
         "400": { description: Invalid review }
         "404": { description: No such application }
-  /internal/v1/organizations/{id}/briefing:
-    put:
-      summary: Save what the daily quiz found on an organization - CEO, CPO, last year's and last quarter's revenue (value, period, https source) and up to 5 news items (added; links already saved are kept, 10 newest kept). Flags the organization until opened.
-      security: [{ internalToken: [] }]
-      responses:
-        "204": { description: Saved }
-        "400": { description: Invalid briefing }
-        "404": { description: No such organization }
-  /api/v1/organizations/{id}/briefing/seen:
-    post:
-      summary: Clear the organization's "something new" flag (the drawer was opened)
-      responses:
-        "204": { description: Cleared }
-        "404": { description: No such organization }
   /internal/v1/events:
     post:
       summary: Ingest classified job emails (service-to-service only)

@@ -122,7 +122,7 @@ func DiagnoseRules(o core.Organization, now time.Time) core.Diagnosis {
 // Diagnose explains why a company isn't responding: rules find the causes, and
 // one small Sonnet 5 call writes the summary (the rules' own summary otherwise).
 func (a *Agent) Diagnose(ctx context.Context, orgID int64) (core.Diagnosis, error) {
-	org, err := a.Core.Organization(ctx, orgID)
+	org, err := a.Orgs.Organization(ctx, orgID)
 	if err != nil {
 		return core.Diagnosis{}, err
 	}
@@ -147,5 +147,5 @@ func (a *Agent) Diagnose(ctx context.Context, orgID int64) (core.Diagnosis, erro
 	} else {
 		a.Log.Warn("diagnosis_summary_fallback", "organization_id", orgID, "reason", fmt.Sprint(err))
 	}
-	return d, a.Core.SaveDiagnosis(ctx, orgID, d)
+	return d, a.Orgs.SaveDiagnosis(ctx, orgID, d)
 }

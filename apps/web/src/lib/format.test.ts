@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brief, daysBetween, initials, isStage, parsePipeline, providerOf, refreshStamp, relativeDays, roundsLabel } from "./format";
+import { brief, companyKey, daysBetween, initials, isStage, parsePipeline, providerOf, refreshStamp, relativeDays, roundsLabel } from "./format";
 
 const zero = { applied: 0, assessment: 0, interview: 0, offer: 0, rejected: 0 };
 
@@ -89,5 +89,14 @@ describe("parsePipeline", () => {
   it("tolerates empty or malformed input", () => {
     expect(parsePipeline("")).toEqual([]);
     expect(parsePipeline("junk;x=")).toEqual([]);
+  });
+});
+
+describe("companyKey", () => {
+  it("keeps only letters and digits, lower-cased, like the services' OrgKey", () => {
+    expect(companyKey("HCL Software")).toBe(companyKey("HCLSoftware"));
+    expect(companyKey("PhonePe Ltd.")).toBe("phonepeltd");
+    expect(companyKey("Société Générale")).toBe("sociétégénérale");
+    expect(companyKey("!!!")).toBe("");
   });
 });

@@ -256,8 +256,8 @@ async function Drawer({ id, closeHref }: { id: number; closeHref: string }) {
         <StageControl id={a.id} stage={a.stage} manual={a.stage_is_manual} />
         <RoundsControl id={a.id} stage={a.stage} rounds={a.rounds_done} next={a.next_step} />
         <InterviewSection app={a} detail={detail} />
-        {a.organization_id > 0 && (
-          <Link href={`/organizations?org=${a.organization_id}`} className={styles.orgLink}>
+        {a.company && (
+          <Link href={`/organizations?company=${encodeURIComponent(a.company)}`} className={styles.orgLink}>
             All applications to {a.company} →
           </Link>
         )}

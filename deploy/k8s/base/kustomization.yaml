@@ -11,4 +11,5 @@ resources:
   - agent.yaml
   - ingest.yaml
   - quiz.yaml
+  - orgs.yaml
   - web.yaml

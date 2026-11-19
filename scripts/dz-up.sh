@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Starts core-api, the sync service and the quiz service if they aren't running (for Claude's
+# Starts core-api, the sync service, the quiz service and the organizations service if they aren't running (for Claude's
 # scheduled run). Services listen on loopback only. Logs: ~/Library/Logs/dzinga.
 set -eu
 cd "$(dirname "$0")/.."
@@ -20,4 +20,8 @@ if ! up http://127.0.0.1:8084/healthz; then
   nohup make quiz >>"$logs/quiz.log" 2>&1 &
   wait_up http://127.0.0.1:8084/healthz "quiz service"
 fi
-echo "core-api, sync service and quiz service are up"
+if ! up http://127.0.0.1:8085/healthz; then
+  nohup make orgs >>"$logs/orgs.log" 2>&1 &
+  wait_up http://127.0.0.1:8085/healthz "organizations service"
+fi
+echo "core-api, sync, quiz and organizations services are up"
