@@ -46,6 +46,9 @@ export interface Summary {
   recent_events: RecentEvent[];
 }
 
+// Verdict band for a fit total; core-api derives it (store.FitBand).
+export type FitBand = "strong" | "good" | "moderate" | "weak";
+
 export type Situation = "" | "exploring" | "immediate" | "reentry" | "growth";
 
 export interface Intent {
@@ -150,7 +153,7 @@ export interface AppAnalysis extends Application {
   outcome: "" | "offer" | "rejected";
   days_to_outcome: number | null;
   interview_rounds: number;
-  fit: { total: number; verdict: string; created_at: string } | null;
+  fit: { total: number; band: FitBand; verdict: string; created_at: string } | null;
   posting_url: string;
 }
 
@@ -199,6 +202,7 @@ export interface AppDetail {
   } | null;
   fit: {
     total: number;
+    band: FitBand;
     verdict: string;
     model: string;
     created_at: string;

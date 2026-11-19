@@ -150,7 +150,7 @@ function Row({ a, href, selected }: { a: AppAnalysis; href: string; selected: bo
         <span className="faint">{a.days_in_stage} d in stage</span>
       </span>
       <span className={styles.fit}>
-        {a.fit ? <FitPill total={a.fit.total} /> : <span className="faint">No fit score</span>}
+        {a.fit ? <FitPill total={a.fit.total} band={a.fit.band} /> : <span className="faint">No fit score</span>}
       </span>
       <span className={styles.move} data-urgent={a.next_move.urgent}>
         {a.open ? a.next_move.title : a.days_to_outcome !== null ? `${STAGE_META[a.stage].label} after ${a.days_to_outcome} d` : "Closed"}

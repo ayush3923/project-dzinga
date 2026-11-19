@@ -73,7 +73,7 @@ func TestFitAndPostingRoundTrip(t *testing.T) {
 	if det.Posting == nil || det.Posting.Title != "Principal PM" || len(det.Posting.Requirements) != 1 || *det.Posting.MinYears != 8 {
 		t.Errorf("posting: %+v", det.Posting)
 	}
-	if det.Fit == nil || det.Fit.Total != 70 || len(det.Fit.Factors) != 5 || det.Fit.Factors[0].Factor != "experience" || len(det.Fit.Suggestions) != 1 {
+	if det.Fit == nil || det.Fit.Total != 70 || det.Fit.Band != "moderate" || len(det.Fit.Factors) != 5 || det.Fit.Factors[0].Factor != "experience" || len(det.Fit.Suggestions) != 1 {
 		t.Errorf("fit: %+v", det.Fit)
 	}
 	if len(det.Fit.Evidence) != 2 || det.Fit.Evidence[1].Strength != "missing" || det.Fit.Gaps[0] != "No fintech" ||
@@ -85,7 +85,7 @@ func TestFitAndPostingRoundTrip(t *testing.T) {
 		t.Errorf("invalid evidence strength accepted: %d", res.StatusCode)
 	}
 	rep := decodeBody[store.AnalysisReport](t, do(t, "GET", ts.URL+"/api/v1/analysis", "", nil))
-	if rep.Applications[0].Fit == nil || rep.Applications[0].Fit.Total != 70 || rep.Applications[0].PostingURL != posting.URL {
+	if rep.Applications[0].Fit == nil || rep.Applications[0].Fit.Total != 70 || rep.Applications[0].Fit.Band != "moderate" || rep.Applications[0].PostingURL != posting.URL {
 		t.Errorf("analysis fit summary: %+v", rep.Applications[0])
 	}
 }

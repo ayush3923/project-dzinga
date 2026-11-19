@@ -57,9 +57,10 @@
   font-weight: 600; font-variant-numeric: tabular-nums; font-size: 13px;
   color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
 }
-.pill[data-band="high"], .pillLarge[data-band="high"] { --c: var(--st-offer); }
-.pill[data-band="mid"], .pillLarge[data-band="mid"] { --c: var(--st-assessment); }
-.pill[data-band="low"], .pillLarge[data-band="low"] { --c: var(--accent); }
+.pill[data-band="strong"], .pillLarge[data-band="strong"],
+.pill[data-band="good"], .pillLarge[data-band="good"] { --c: var(--st-offer); }
+.pill[data-band="moderate"], .pillLarge[data-band="moderate"] { --c: var(--st-assessment); }
+.pill[data-band="weak"], .pillLarge[data-band="weak"] { --c: var(--accent); }
 .pillLarge { display: inline-flex; align-items: baseline; gap: 2px; font-size: 30px; padding: 8px 14px; border-radius: 14px; }
 .pillLarge small { font-size: 12px; font-weight: 500; opacity: 0.8; }
 

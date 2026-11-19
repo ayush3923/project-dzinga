@@ -162,7 +162,7 @@ function FitSummary({ id, detail }: { id: number; detail: AppDetail | null }) {
   return (
     <section className={styles.fitBox} aria-label="Fit score">
       <div className={styles.fitHead}>
-        <FitPill total={f.total} />
+        <FitPill total={f.total} band={f.band} />
         <span className="faint">Fit score · {f.model.startsWith("claude-opus") ? "Claude Opus" : f.model === "rules" ? "rule-based" : f.model} · {shortDate(f.created_at)}</span>
       </div>
       {f.verdict && <p className={styles.fitVerdict}>{f.verdict}</p>}
