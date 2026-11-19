@@ -27,7 +27,11 @@ export default function OrganizationsPage({ searchParams }: PageProps<"/organiza
 
 async function Report({ searchParams }: { searchParams: PageProps<"/organizations">["searchParams"] }) {
   const sp = await searchParams;
-  const orgId = /^\d+$/.test(one(sp.org) ?? "") ? Number(one(sp.org)) : undefined;
+  // Applications link here by company name (?company=), since they live in core-api.
+  const company = one(sp.company)?.slice(0, 200);
+  const orgId = /^\d+$/.test(one(sp.org) ?? "")
+    ? Number(one(sp.org))
+    : company ? await api.organizationId(company).catch(() => undefined) : undefined;
   const s = one(sp.sort);
   const sortKey: OrgSortKey | undefined = isOrgSortKey(s) ? s : undefined;
   const d = one(sp.dir);

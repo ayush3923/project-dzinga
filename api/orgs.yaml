@@ -1,0 +1,67 @@
+openapi: 3.1.0
+info:
+  title: Dzinga organizations service
+  version: 1.0.0
+  description: >
+    Every company the user has applied to or prefers (ADR 0010): statistics computed from
+    core-api's applications, the preferred list, company profiles, diagnoses, briefings from
+    the daily quiz and suggestions. /api routes are called by the web app's server; /internal
+    routes need the internal token. Routes that read applications answer 502 when core-api
+    is unreachable.
+servers:
+  - url: http://127.0.0.1:8085
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+  /api/v1/organizations:
+    get:
+      summary: Every organization with applications or on the preferred list (statistics, diagnosis hint, briefing_unseen), and the preferred list
+  /api/v1/organizations/lookup:
+    get:
+      summary: An organization's id from a company name (?company=; matched by key, so case and punctuation don't matter)
+      responses:
+        "200": { description: "{id}" }
+        "404": { description: No organization for that company }
+  /api/v1/organizations/{id}:
+    get:
+      summary: One organization - statistics, application_history (core-api's analysis rows, newest first), profile, diagnosis, briefing, research_requested_at
+  /api/v1/organizations/preferred:
+    put:
+      summary: Replace the preferred list ({names, auto}); returns the report
+  /api/v1/organizations/{id}/research:
+    post:
+      summary: Queue a company profile for Claude's next run
+      responses:
+        "202": { description: Queued; returns research_requested_at }
+  /api/v1/organizations/{id}/briefing/seen:
+    post:
+      summary: Clear the organization's "something new" flag (the drawer was opened)
+  /api/v1/suggestions:
+    get:
+      summary: Up to 3 companies worth applying to now (preferred with nothing open, shortlisted before, replies fast)
+  /internal/v1/research-requests:
+    get:
+      summary: Pending company profiles, oldest first (kind company_profile)
+      security: [{ internalToken: [] }]
+  /internal/v1/organizations/{id}/profile:
+    put:
+      summary: Save a company profile (overview, interview_angle, news ≤ 5, products, leaders, ratings ≤ 2; https links); completes the request
+      security: [{ internalToken: [] }]
+  /internal/v1/organizations/{id}/diagnosis:
+    post:
+      summary: Save a diagnosis (summary, causes with confidence, actions)
+      security: [{ internalToken: [] }]
+  /internal/v1/organizations/{id}/briefing:
+    put:
+      summary: Save what the daily quiz found - CEO, CPO, last year's and last quarter's revenue (value, period, https source) and up to 5 news items (added; links already saved are kept, 10 newest kept). Flags the organization until opened.
+      security: [{ internalToken: [] }]
+      responses:
+        "204": { description: Saved }
+        "400": { description: Invalid briefing }
+        "404": { description: No such organization }
+components:
+  securitySchemes:
+    internalToken:
+      type: http
+      scheme: bearer

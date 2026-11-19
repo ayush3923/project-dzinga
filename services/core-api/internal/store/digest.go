@@ -36,12 +36,6 @@ type DigestStep struct {
 	Detail  string `json:"detail"`
 }
 
-type DigestSuggestion struct {
-	ID     int64  `json:"id"`
-	Name   string `json:"name"`
-	Reason string `json:"reason"`
-}
-
 type DigestTrends struct {
 	AppsThisWeek       int     `json:"apps_this_week"`
 	AppsLastWeek       int     `json:"apps_last_week"`
@@ -59,17 +53,16 @@ type DayPoint struct {
 }
 
 type Digest struct {
-	RefreshID       int64              `json:"refresh_id"` // 0 when no refresh is recorded yet
-	RefreshAt       *time.Time         `json:"refresh_at"`
-	Since           time.Time          `json:"since"` // the window's start
-	NewApplications []DigestApp        `json:"new_applications"`
-	Responses       []DigestApp        `json:"responses"`
-	Trends          DigestTrends       `json:"trends"`
-	NextSteps       []DigestStep       `json:"next_steps"`
-	Suggested       []DigestSuggestion `json:"suggested"`
-	Series          []DayPoint         `json:"series"`
-	Text            string             `json:"text"`
-	Model           string             `json:"model"` // template | claude-sonnet-5 | …
+	RefreshID       int64        `json:"refresh_id"` // 0 when no refresh is recorded yet
+	RefreshAt       *time.Time   `json:"refresh_at"`
+	Since           time.Time    `json:"since"` // the window's start
+	NewApplications []DigestApp  `json:"new_applications"`
+	Responses       []DigestApp  `json:"responses"`
+	Trends          DigestTrends `json:"trends"`
+	NextSteps       []DigestStep `json:"next_steps"`
+	Series          []DayPoint   `json:"series"`
+	Text            string       `json:"text"`
+	Model           string       `json:"model"` // template | claude-sonnet-5 | …
 }
 
 // waitingWindow: an application with no reply after this long is treated as closed.
@@ -114,7 +107,7 @@ func (s *Store) SaveDigestText(ctx context.Context, userID string, refreshID int
 
 // Digest computes the morning digest for the window since the previous refresh.
 func (s *Store) Digest(ctx context.Context, userID string, now time.Time) (Digest, error) {
-	d := Digest{NewApplications: []DigestApp{}, Responses: []DigestApp{}, NextSteps: []DigestStep{}, Suggested: []DigestSuggestion{}}
+	d := Digest{NewApplications: []DigestApp{}, Responses: []DigestApp{}, NextSteps: []DigestStep{}}
 
 	// The window: what the latest refresh brought in (since the one before it).
 	var at []string
@@ -179,9 +172,6 @@ func (s *Store) Digest(ctx context.Context, userID string, now time.Time) (Diges
 		return d, err
 	}
 	if err := s.nextSteps(ctx, userID, now, &d); err != nil {
-		return d, err
-	}
-	if err := s.suggestions(ctx, userID, now, &d); err != nil {
 		return d, err
 	}
 
@@ -330,51 +320,6 @@ func (s *Store) nextSteps(ctx context.Context, userID string, now time.Time, d *
 	return nil
 }
 
-// suggestions: companies worth applying to now, from your own history.
-func (s *Store) suggestions(ctx context.Context, userID string, now time.Time, d *Digest) error {
-	rep, err := s.Organizations(ctx, userID, now)
-	if err != nil {
-		return err
-	}
-	add := func(o OrgSummary, reason string) {
-		for _, x := range d.Suggested {
-			if x.ID == o.ID {
-				return
-			}
-		}
-		if len(d.Suggested) < 3 {
-			d.Suggested = append(d.Suggested, DigestSuggestion{ID: o.ID, Name: o.Name, Reason: reason})
-		}
-	}
-	for _, o := range rep.Preferred {
-		if o.Open == 0 {
-			add(o, "on your preferred list, with nothing open there now")
-		}
-	}
-	warm := append([]OrgSummary{}, rep.Organizations...)
-	sort.SliceStable(warm, func(i, j int) bool {
-		return warm[i].Interviewed+warm[i].Shortlisted > warm[j].Interviewed+warm[j].Shortlisted
-	})
-	for _, o := range warm {
-		if o.Open == 0 && o.Interviewed+o.Shortlisted > 0 {
-			add(o, fmt.Sprintf("shortlisted or interviewed you before (%d)", o.Interviewed+o.Shortlisted))
-		}
-	}
-	fast := append([]OrgSummary{}, rep.Organizations...)
-	sort.SliceStable(fast, func(i, j int) bool {
-		if fast[i].AvgResponseDays == nil || fast[j].AvgResponseDays == nil {
-			return fast[j].AvgResponseDays == nil && fast[i].AvgResponseDays != nil
-		}
-		return *fast[i].AvgResponseDays < *fast[j].AvgResponseDays
-	})
-	for _, o := range fast {
-		if o.Open == 0 && o.AvgResponseDays != nil && *o.AvgResponseDays <= 7 && o.Responded > o.Rejected {
-			add(o, fmt.Sprintf("replies fast (about %.0f days)", *o.AvgResponseDays))
-		}
-	}
-	return nil
-}
-
 // DigestTemplate writes the digest in at most 100 words without a model.
 func DigestTemplate(d Digest) string {
 	var parts []string
@@ -439,13 +384,6 @@ func DigestTemplate(d Digest) string {
 			steps = append(steps, fmt.Sprintf("%s for %s", strings.ToLower(s.Title), s.Company))
 		}
 		parts = append(parts, "Next: "+strings.Join(steps, "; ")+".")
-	}
-	if len(d.Suggested) > 0 {
-		var names []string
-		for _, s := range d.Suggested {
-			names = append(names, s.Name)
-		}
-		parts = append(parts, "Worth a look: "+strings.Join(names, ", ")+".")
 	}
 	return limitWords(strings.Join(parts, " "), 100)
 }

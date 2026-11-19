@@ -242,9 +242,6 @@ func (s *Store) Maintain(ctx context.Context) error {
 	if _, err := s.MergeOrphanApplications(ctx); err != nil {
 		return err
 	}
-	if err := s.LinkAllOrganizations(ctx); err != nil {
-		return err
-	}
 	if err := s.SeedMailboxes(ctx); err != nil {
 		return err
 	}

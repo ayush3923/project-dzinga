@@ -111,3 +111,8 @@ export function providerOf(address: string): { id: Provider; label: string; lett
   if (["icloud", "me", "mac"].includes(base)) return { id: "icloud", label: "iCloud Mail", letter: "i" };
   return { id: "other", label: "Email", letter: "@" };
 }
+
+/** A company's key, as core-api and the organizations service compute it: "PhonePe Ltd." and "PHONEPE" match. */
+export function companyKey(name: string): string {
+  return name.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}

@@ -235,7 +235,7 @@ func (c *Client) RecordUsage(ctx context.Context, u Usage) error {
 	return c.do(ctx, "POST", "/internal/v1/llm-usage", u, nil)
 }
 
-// ---- organizations ----
+// ---- organizations (the organizations service, ADR 0010; same client, its base URL) ----
 
 type OrgApplication struct {
 	ID       int64  `json:"id"`
@@ -327,6 +327,20 @@ func (c *Client) SaveDiagnosis(ctx context.Context, id int64, d Diagnosis) error
 	return c.do(ctx, "POST", fmt.Sprintf("/internal/v1/organizations/%d/diagnosis", id), d, nil)
 }
 
+// Suggestion is a company worth applying to now (organizations service).
+type Suggestion struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+func (c *Client) Suggestions(ctx context.Context) ([]Suggestion, error) {
+	var out struct {
+		Suggestions []Suggestion `json:"suggestions"`
+	}
+	err := c.do(ctx, "GET", "/api/v1/suggestions", nil, &out)
+	return out.Suggestions, err
+}
+
 // ---- morning digest ----
 
 type DigestApp struct {
@@ -352,12 +366,9 @@ type Digest struct {
 		Role    string `json:"role"`
 		Title   string `json:"title"`
 	} `json:"next_steps"`
-	Suggested []struct {
-		Name   string `json:"name"`
-		Reason string `json:"reason"`
-	} `json:"suggested"`
-	Text  string `json:"text"`
-	Model string `json:"model"`
+	Suggested []Suggestion `json:"-"` // filled from the organizations service
+	Text      string       `json:"text"`
+	Model     string       `json:"model"`
 }
 
 func (c *Client) Digest(ctx context.Context) (Digest, error) {

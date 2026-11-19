@@ -241,9 +241,6 @@ func (s *Store) Ingest(ctx context.Context, userID string, events []IngestEvent)
 		if err := upsertContact(ctx, tx, userID, appID, e); err != nil {
 			return 0, err
 		}
-		if err := linkOrganization(ctx, tx, userID, appID); err != nil {
-			return 0, err
-		}
 		if err := rebuildHistory(ctx, tx, userID, appID); err != nil {
 			return 0, err
 		}
@@ -263,7 +260,6 @@ type Application struct {
 	AppliedAt      time.Time `json:"applied_at"`
 	LastActivityAt time.Time `json:"last_activity_at"`
 	EventCount     int       `json:"event_count"`
-	OrganizationID int64     `json:"organization_id"`
 	JobURL         string    `json:"job_url"`     // added by the user; "" when none
 	RoundsDone     int       `json:"rounds_done"` // interview rounds completed, set by the user
 	NextStep       string    `json:"next_step"`   // what comes next, set by the user; "" when none
@@ -283,13 +279,13 @@ const appColumns = `a.id, a.company, a.role, COALESCE(a.stage_override, a.stage)
 	a.source_account, a.applied_at, a.last_activity_at,
 	(SELECT COUNT(*) FROM events e WHERE e.application_id = a.id),
 	COALESCE((SELECT group_concat(account, char(31)) FROM (SELECT DISTINCT account FROM events e
-		WHERE e.application_id = a.id ORDER BY account)), ''), COALESCE(a.organization_id, 0), a.job_url, a.rounds_done, a.next_step`
+		WHERE e.application_id = a.id ORDER BY account)), ''), a.job_url, a.rounds_done, a.next_step`
 
 func scanApp(row interface{ Scan(...any) error }) (Application, error) {
 	var a Application
 	var applied, last, accounts string
 	if err := row.Scan(&a.ID, &a.Company, &a.Role, &a.Stage, &a.StageIsManual,
-		&a.SourceAccount, &applied, &last, &a.EventCount, &accounts, &a.OrganizationID, &a.JobURL, &a.RoundsDone, &a.NextStep); err != nil {
+		&a.SourceAccount, &applied, &last, &a.EventCount, &accounts, &a.JobURL, &a.RoundsDone, &a.NextStep); err != nil {
 		return a, err
 	}
 	a.Accounts = []string{}
@@ -538,4 +534,37 @@ func (s *Store) PutIntent(ctx context.Context, userID string, i Intent, now time
 		ON CONFLICT (user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
 		userID, string(raw), now.UTC().Format(time.RFC3339))
 	return err
+}
+
+// OrgKey normalises a company name: "PhonePe Ltd." and "PHONEPE" are one company.
+// The organizations service groups applications by the same key (ADR 0010).
+func OrgKey(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+func (s *Store) scanRows(ctx context.Context, q string, arg any, each func(*sql.Rows) error) error {
+	rows, err := s.db.QueryContext(ctx, q, arg)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if err := each(rows); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }

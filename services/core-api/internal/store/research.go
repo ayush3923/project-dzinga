@@ -7,18 +7,17 @@ import (
 	"time"
 )
 
-// Research requests: Claude's work queue. Web research (finding a job posting,
-// building a company profile) and Opus fit scores are done by Claude in the Claude
-// app, not through the API. The web app or a refresh queues a request; a scheduled
+// Research requests: Claude's work queue. Web research (finding a job posting) and
+// Opus fit scores are done by Claude in the Claude app, not through the API.
+// Company profiles moved to the organizations service with its own queue (ADR 0010). The web app or a refresh queues a request; a scheduled
 // Claude task works through the queue (see docs/runbooks/claude-queue.md), and
 // saving the result marks the request done. The daily quiz lives in the quiz
 // service (ADR 0008).
 //
-// Targets: an organization (company_profile) or an application (job_posting,
-// fit_score, interview_review). Interview reviews are queued by saving a note
-// (interview.go), not through RequestResearch.
+// Targets are applications (job_posting, fit_score, interview_review). Interview
+// reviews are queued by saving a note (interview.go), not through RequestResearch.
 
-var ErrBadKind = errors.New("kind must be company_profile, job_posting or fit_score")
+var ErrBadKind = errors.New("kind must be job_posting or fit_score")
 
 // appKinds are the request kinds whose target is an application.
 const appKinds = `('job_posting', 'fit_score', 'interview_review')`
@@ -40,8 +39,6 @@ func (s *Store) RequestResearch(ctx context.Context, userID, kind string, target
 	}
 	defer tx.Rollback()
 	switch kind {
-	case "company_profile":
-		err = ownsOrg(ctx, tx, userID, targetID)
 	case "job_posting", "fit_score":
 		err = ownsApp(ctx, tx, userID, targetID)
 	default:
@@ -67,12 +64,10 @@ func (s *Store) RequestResearch(ctx context.Context, userID, kind string, target
 func (s *Store) PendingResearch(ctx context.Context, userID string) ([]ResearchRequest, error) {
 	out := []ResearchRequest{}
 	err := s.scanRows(ctx, `SELECT r.id, r.kind, r.target_id, r.created_at,
-			COALESCE(o.name, a.company || CASE WHEN a.role <> '' THEN ' — ' || a.role ELSE '' END, ''), COALESCE(a.job_url, '')
+			a.company || CASE WHEN a.role <> '' THEN ' — ' || a.role ELSE '' END, COALESCE(a.job_url, '')
 		FROM research_requests r
-		LEFT JOIN organizations o ON r.kind = 'company_profile' AND o.id = r.target_id
-		LEFT JOIN applications a ON r.kind IN `+appKinds+` AND a.id = r.target_id
-		WHERE r.user_id = ? AND r.status = 'pending'
-			AND (r.kind = 'company_profile' OR a.id IS NOT NULL) -- not for a since-merged application
+		JOIN applications a ON a.id = r.target_id -- not for a since-merged application
+		WHERE r.user_id = ? AND r.status = 'pending' AND r.kind IN `+appKinds+`
 		ORDER BY r.created_at, r.id`, userID,
 		func(rows *sql.Rows) error {
 			var r ResearchRequest

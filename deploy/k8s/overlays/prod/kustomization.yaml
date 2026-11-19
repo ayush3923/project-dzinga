@@ -9,4 +9,5 @@ images:
   - { name: dzinga/agent, newName: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/dzinga/agent, newTag: GIT_SHA }
   - { name: dzinga/ingest, newName: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/dzinga/ingest, newTag: GIT_SHA }
   - { name: dzinga/quiz, newName: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/dzinga/quiz, newTag: GIT_SHA }
+  - { name: dzinga/orgs, newName: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/dzinga/orgs, newTag: GIT_SHA }
   - { name: dzinga/web, newName: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/dzinga/web, newTag: GIT_SHA }

@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { Suspense } from "react";
-import { api, type Digest, type PrepQuestion } from "@/lib/api";
+import { api, type Digest, type PrepQuestion, type Suggestion } from "@/lib/api";
 import { STAGES, STAGE_META, brief, daysBetween, greeting, relativeDays, shortDate } from "@/lib/format";
 import { CompanyLogo, EmptyInbox, MailboxIcon, MailboxIcons, Offline, StageBadge } from "@/components/ui";
 import styles from "./today.module.css";
@@ -19,11 +20,14 @@ async function Today() {
   let sum;
   let digest: Digest | null = null;
   let prep: { day: string; items: PrepQuestion[] } | null = null;
+  let suggested: Suggestion[] | null = null;
   try {
-    [sum, digest, prep] = await Promise.all([api.summary(), api.digest().catch(() => null), api.prep().catch(() => null)]);
+    [sum, digest, prep, suggested] = await Promise.all([api.summary(), api.digest().catch(() => null),
+      api.prep().catch(() => null), api.suggestions().catch(() => null)]);
   } catch {
     return <Offline />;
   }
+  await connection(); // greetings and "days quiet" use today's date, so render per request
   const now = new Date();
   const name = process.env.DZ_DISPLAY_NAME;
 
@@ -46,7 +50,7 @@ async function Today() {
         <>
           {digest && (
             <div className={styles.grid}>
-              <DigestCard d={digest} />
+              <DigestCard d={digest} suggested={suggested} />
               <section className={`card ${styles.panel}`} aria-labelledby="trend-h">
                 <div className={styles.panelHead}>
                   <h2 id="trend-h">Last 7 days</h2>

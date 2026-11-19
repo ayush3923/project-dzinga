@@ -141,9 +141,6 @@ func (s *Store) EditApplication(ctx context.Context, userID string, id int64, e 
 			WHERE id = ?`, target, target, target, target); err != nil {
 			return 0, err
 		}
-		if err := linkOrganization(ctx, tx, userID, target); err != nil {
-			return 0, err
-		}
 	}
 	if e.JobURL != nil {
 		if _, err := tx.ExecContext(ctx, `UPDATE applications SET job_url = ? WHERE id = ?`, strings.TrimSpace(*e.JobURL), target); err != nil {

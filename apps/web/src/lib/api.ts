@@ -17,7 +17,6 @@ export interface Application {
   applied_at: string;
   last_activity_at: string;
   event_count: number;
-  organization_id: number;
   job_url: string;
   rounds_done: number;
   next_step: string;
@@ -71,9 +70,15 @@ export class ApiError extends Error {
 }
 
 const QUIZ_BASE = process.env.QUIZ_API_URL ?? "http://127.0.0.1:8084";
+const ORGS_BASE = process.env.ORGS_API_URL ?? "http://127.0.0.1:8085";
 
 function call<T>(path: string, init?: RequestInit): Promise<T> {
   return request<T>(BASE, "core-api", path, init);
+}
+
+/** The organizations service (ADR 0010). */
+function orgsCall<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(ORGS_BASE, "The organizations service", path, init);
 }
 
 /** The quiz service (ADR 0008). */
@@ -318,6 +323,9 @@ export interface OrgSummary {
   briefing_unseen: boolean;
 }
 
+/** A company worth applying to now, from your own history (organizations service). */
+export interface Suggestion { id: number; name: string; reason: string }
+
 export interface OrgsReport {
   preferred_mode: "auto" | "manual";
   preferred: OrgSummary[];
@@ -456,7 +464,6 @@ export interface Digest {
     waiting: number;
   };
   next_steps: { id: number; company: string; role: string; title: string; detail: string }[];
-  suggested: { id: number; name: string; reason: string }[];
   series: DayPoint[];
   text: string;
   model: string;
@@ -496,13 +503,17 @@ export const api = {
     ingestCall<{ verification_uri: string; user_code: string; expires_in: number }>("POST", `/v1/mailboxes/${id}/microsoft`),
   microsoftStatus: (id: number) => ingestCall<{ status: "pending" | "connected" | "error"; error?: string }>("GET", `/v1/mailboxes/${id}/microsoft`),
   disconnect: (id: number, forget: boolean) => ingestCall<void>("DELETE", `/v1/mailboxes/${id}${forget ? "?forget=true" : ""}`),
-  organizations: () => call<OrgsReport>("/api/v1/organizations"),
-  organization: (id: number) => call<OrgDetail>(`/api/v1/organizations/${id}`),
+  organizations: () => orgsCall<OrgsReport>("/api/v1/organizations"),
+  organization: (id: number) => orgsCall<OrgDetail>(`/api/v1/organizations/${id}`),
+  /** An organization's id from a company name (applications link by company). */
+  organizationId: (company: string) =>
+    orgsCall<{ id: number }>(`/api/v1/organizations/lookup?company=${encodeURIComponent(company)}`).then((r) => r.id),
   setPreferred: (names: string[], auto: boolean) =>
-    call<OrgsReport>("/api/v1/organizations/preferred", { method: "PUT", body: JSON.stringify({ names, auto }) }),
+    orgsCall<OrgsReport>("/api/v1/organizations/preferred", { method: "PUT", body: JSON.stringify({ names, auto }) }),
+  suggestions: () => orgsCall<{ suggestions: Suggestion[] }>("/api/v1/suggestions").then((r) => r.suggestions),
   requestResearch: (kind: "organizations" | "applications", id: number) =>
-    call<{ research_requested_at: string }>(`/api/v1/${kind}/${id}/research`, { method: "POST" }),
-  briefingSeen: (id: number) => call<void>(`/api/v1/organizations/${id}/briefing/seen`, { method: "POST" }),
+    (kind === "organizations" ? orgsCall : call)<{ research_requested_at: string }>(`/api/v1/${kind}/${id}/research`, { method: "POST" }),
+  briefingSeen: (id: number) => orgsCall<void>(`/api/v1/organizations/${id}/briefing/seen`, { method: "POST" }),
   addInterviewNote: (id: number, note: { round: number; body: string }) =>
     call<InterviewNote>(`/api/v1/applications/${id}/interview-notes`, { method: "POST", body: JSON.stringify(note) }),
   prep: () => quizCall<{ day: string; items: PrepQuestion[] }>("/api/v1/prep"),

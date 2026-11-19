@@ -65,6 +65,9 @@ func (f *fakeCore) Digest(context.Context) (core.Digest, error) {
 	}
 	return *f.digest, nil
 }
+func (f *fakeCore) Suggestions(context.Context) ([]core.Suggestion, error) {
+	return []core.Suggestion{{Name: "Zeta", Reason: "replies fast (about 3 days)"}}, nil
+}
 func (f *fakeCore) SaveDigest(_ context.Context, id int64, text, model string) error {
 	f.digest.Text, f.digest.Model = text, model
 	f.savedDigest++
@@ -133,7 +136,7 @@ func agent(c *fakeCore, m *fakeModel) *Agent {
 
 func agentWithFetcher(c *fakeCore, m *fakeModel, f *fetcher) (*Agent, *fetcher) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return &Agent{Core: c, Router: &router.Router{LLM: m, Routes: router.Default, Log: log}, Log: log, Fetch: f.fetch}, f
+	return &Agent{Core: c, Orgs: c, Router: &router.Router{LLM: m, Routes: router.Default, Log: log}, Log: log, Fetch: f.fetch}, f
 }
 
 func withProfile() core.Profile {
@@ -320,7 +323,8 @@ func TestDigestWrittenOncePerRefresh(t *testing.T) {
 	m := &fakeModel{}
 	a := agent(c, m)
 	d, err := a.Digest(context.Background())
-	if err != nil || d.Model != "claude-sonnet-5" || c.savedDigest != 1 || !strings.Contains(m.prompts[0], "Acme, PM") {
+	if err != nil || d.Model != "claude-sonnet-5" || c.savedDigest != 1 || !strings.Contains(m.prompts[0], "Acme, PM") ||
+		!strings.Contains(m.prompts[0], "Zeta: replies fast") {
 		t.Fatalf("err=%v %+v saved=%d", err, d, c.savedDigest)
 	}
 	// Already written for this refresh: no second call.

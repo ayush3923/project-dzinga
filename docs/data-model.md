@@ -1,6 +1,8 @@
 # Data model
 
-core-api owns all data. Every table carries `user_id`, and every query filters on it.
+core-api owns applications and everything about them; the quiz service (ADR 0008) and the
+organizations service (ADR 0010) own their own tables, below. Every table carries `user_id`
+(directly or through its parent), and every query filters on it.
 Local deployments use SQLite (`services/core-api/internal/store/migrate.go`). Production
 uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 
@@ -27,14 +29,27 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 | `profile_skills` | skill | skill | user |
 | `profile_photos` | profile photo (the image is a file on core-api's disk) | updated_at | user (upload, remove) |
 | `intents` | job-search intent (PRD stage 1) | roles, designation, locations, salary range, company types, situation | user |
-| `organizations` | company (normalised name) | key, name | core-api, from applications; user (preferred list) |
-| `org_settings` / `org_preferences` | preferred organizations | preferred_mode (auto = top 3, manual), ordered list | user |
-| `company_profiles` | researched company (1:1 with organization) | overview, interview_angle, model | agent (Sonnet 5) |
-| `company_news` / `company_products` / `company_leaders` | profile details | news ≤ 5 from the last 3 months with date and link; products; leaders | agent |
-| `company_ratings` | external rating | source (glassdoor = employees, gartner_peer_insights = customers), score (NULL = not found), review_count, url, as_of | agent |
-| `org_diagnoses` / `org_diagnosis_items` | diagnosis run | summary, causes with confidence, actions | agent (Sonnet 5) |
-| `research_requests` | queued work for Claude (ADR 0007) | kind (company_profile, job_posting, fit_score), target_id, status (pending, done) | web app, refresh; done when the result is saved |
+| `interview_notes` | the user's notes on an interview round | round (0 = not given), body, created_at | user (only in the interview stage) |
+| `interview_reviews` | Claude's read on the notes (history kept; latest shown) | chance (low, medium, high), summary, signals, concerns, next_steps, model | Claude (scheduled run) |
+| `research_requests` | queued work for Claude (ADR 0007) | kind (job_posting, fit_score, interview_review), target_id (an application), status (pending, done) | web app, refresh, a saved interview note; done when the result is saved |
 | `llm_usage` | Claude API call | purpose, model, input_tokens, output_tokens, web_searches | agent (cost tracking, Rule 7) |
+
+## Organizations service tables (`data/orgs.db`, ADR 0010)
+
+Applications are grouped into organizations by company key (lower-case letters and digits
+of the name), read from core-api's analysis on each request.
+
+| Table | One row per | Key columns | Written by |
+|---|---|---|---|
+| `organizations` | company (normalised name) | key, name | orgs, the first time an application to it is seen; user (preferred list) |
+| `org_settings` / `org_preferences` | preferred organizations | preferred_mode (auto = top 3, manual), ordered list | user |
+| `company_profiles` | researched company (1:1 with organization) | overview, interview_angle, model | Claude (scheduled run) or agent |
+| `company_news` / `company_products` / `company_leaders` | profile details | news ≤ 5 from the last 3 months with date and link; products; leaders | as above |
+| `company_ratings` | external rating | source (glassdoor = employees, gartner_peer_insights = customers), score (NULL = not found), review_count, url, as_of | as above |
+| `org_diagnoses` / `org_diagnosis_items` | diagnosis run | summary, causes with confidence, actions | agent (Sonnet 5) |
+| `org_briefings` | what the daily quiz found on a company (1:1) | ceo, cpo, revenue_year / _quarter (value as published, period, source url), leaders_url, updated_at, seen_at | Claude (scheduled run); seen_at by the user opening it |
+| `org_briefing_news` | dated news item on a company (10 newest kept) | day (quiz day), title, summary, source_title, url (unique), published_on | Claude |
+| `research_requests` | queued company profile (ADR 0007) | organization_id, status (pending, done) | web app; done when the profile is saved |
 
 ## Quiz service tables (`data/quiz.db`, ADR 0008)
 
@@ -45,6 +60,7 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 | `quiz_answers` | the user's answer to a question | choice, text, audio_file (name only; file in the service's audio folder), transcript, feedback, score (0–10) | user; Claude adds feedback |
 | `quiz_requests` | day whose quiz a refresh asked for | day, requested_at, done_at | sync service (refresh); done when the quiz is saved |
 | `news_items` | key news item for a day (shown on the profile) | day, position, topic (ai_news, org_news), company, title, summary, source_title, url, published_on | Claude, with the daily quiz |
+| `prep_questions` | one of three bonus prep questions a day (Today page) | day, position, company, role, question, why, approach | Claude, with the daily quiz |
 
 ## Relationships
 
@@ -55,6 +71,10 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
   (the total equals their sum, enforced by the API).
 - An application has many `contacts` and many `outreach_drafts`. A draft may point at a
   contact of the same application only.
+- An application has many `interview_notes` and `interview_reviews`; merging two
+  applications moves both.
+- Across services, an application belongs to the organization whose key matches its
+  company's; nothing stores the link, so correcting the company moves it.
 
 ## Derived rules
 

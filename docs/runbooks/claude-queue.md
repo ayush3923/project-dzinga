@@ -33,11 +33,13 @@ service for today's quiz (ADR 0008).
 
 ```bash
 scripts/dzq.sh GET /internal/v1/research-requests
+scripts/dzq.sh GET orgs/internal/v1/research-requests
 scripts/dzq.sh GET quiz/internal/v1/pending
 ```
 
-The first is core-api's queue (`fit_score`, `job_posting`, `company_profile`,
-`interview_review`); work it oldest first. The second is the quiz service's: `quizzes`
+The first is core-api's queue (`fit_score`, `job_posting`, `interview_review`); work it
+oldest first. The second is the organizations service's (`company_profile`, ADR 0010).
+The third is the quiz service's: `quizzes`
 (days to build), `news` (days whose key news is missing), `prep` (today, when its bonus
 prep questions are missing) and `feedback` (answers awaiting feedback). Saving a result marks
 it done.
@@ -121,10 +123,11 @@ Save the most useful items you read as the day's key news for the profile page, 
 
 ### Organization briefings (same run, one per chosen company)
 
-For each of the 4 companies, save what you learned on its organization in core-api, so
-the organization drawer shows it and the list flags it until it is opened. Find the
-organization's id in `GET /api/v1/organizations`, then
-`scripts/dzq.sh PUT /internal/v1/organizations/{id}/briefing <file>`:
+For each of the 4 companies, save what you learned on its organization in the
+organizations service, so the organization drawer shows it and the list flags it until it
+is opened. Find the organization's id with
+`scripts/dzq.sh GET "orgs/api/v1/organizations/lookup?company=<name>"`, then
+`scripts/dzq.sh PUT orgs/internal/v1/organizations/{id}/briefing <file>`:
 
 - `news`: that company's items from today (≤ 5), with `day` (the quiz day), `title`,
   `summary`, `source_title`, the https `url` and `published_on` when known. A link saved
@@ -196,8 +199,10 @@ read on their chances.
 ## 7. `job_posting` and `company_profile`
 
 - `job_posting`: step 3, parts 1–4 (find and save the posting only).
-- `company_profile`: research the organization and save with
-  `PUT /internal/v1/organizations/{id}/profile` (shape in `api/core-api.yaml`).
+- `company_profile` (organizations service): research the organization and save with
+  `scripts/dzq.sh PUT orgs/internal/v1/organizations/{id}/profile <file>` (shape in
+  `api/orgs.yaml`). The organization's applications are in
+  `GET orgs/api/v1/organizations/{id}`.
 
 ## 8. Report
 

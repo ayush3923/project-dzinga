@@ -223,7 +223,7 @@ export async function AnalysisDrawer({ a, closeHref, siblings, siblingHref }: {
               ))}
             </ul>
           )}
-          <Link href={`/organizations?org=${a.organization_id}`} className={styles.link}>Open {a.company} in Organizations →</Link>
+          <Link href={`/organizations?company=${encodeURIComponent(a.company)}`} className={styles.link}>Open {a.company} in Organizations →</Link>
         </section>
 
         {/* People */}

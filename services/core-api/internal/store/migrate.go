@@ -481,6 +481,26 @@ CREATE TABLE interview_reviews (
 CREATE INDEX idx_interview_reviews_app ON interview_reviews (application_id);
 `)
 
+// v14: organizations moved to their own service (ADR 0010), which imported these
+// tables first (services/orgs -import-core). Applications are grouped by company there.
+var _ = appendMigration(`
+DELETE FROM research_requests WHERE kind = 'company_profile';
+DROP INDEX idx_apps_org;
+ALTER TABLE applications DROP COLUMN organization_id;
+DROP TABLE org_briefing_news;
+DROP TABLE org_briefings;
+DROP TABLE org_diagnosis_items;
+DROP TABLE org_diagnoses;
+DROP TABLE company_ratings;
+DROP TABLE company_leaders;
+DROP TABLE company_products;
+DROP TABLE company_news;
+DROP TABLE company_profiles;
+DROP TABLE org_preferences;
+DROP TABLE org_settings;
+DROP TABLE organizations;
+`)
+
 // Migrations are listed here, in order, and nowhere else: Go initialises files
 // alphabetically, so a migration declared in another file could run out of order.
 
