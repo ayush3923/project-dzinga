@@ -60,8 +60,9 @@ func near(a, b time.Time) bool {
 }
 
 // chooseKey decides which application an email belongs to:
-//   - an email naming a role joins that role's application (upgrading a role-less
-//     application from the same few days when there is one);
+//   - an email with a requisition id joins the application for that id (jobref.go);
+//   - an email naming a role joins that role's latest application by then (upgrading a
+//     role-less application from the same few days when there is one);
 //   - a role-less "thank you for applying" starts a new application unless another
 //     acknowledgement for the company arrived within 2 days;
 //   - any other role-less email joins the company's latest earlier application.
@@ -73,8 +74,18 @@ func chooseKey(ctx context.Context, tx *sql.Tx, userID string, e IngestEvent) (s
 	at := e.OccurredAt
 	if e.Role != "" {
 		key := AppKey(e.Company, e.Role)
+		sameRole := func(c candidate) bool { return baseKey(c.key) == key || (c.role != "" && similarRole(c.role, e.Role)) }
+		if ref := normRef(e.JobRef); ref != "" {
+			return keyForRef(ctx, tx, cands, key, ref, sameRole)
+		}
+		// No id: the latest application to this role that began by then.
+		for _, c := range cands { // newest first
+			if sameRole(c) && !c.applied.After(at.Add(sameApplication)) {
+				return c.key, nil
+			}
+		}
 		for _, c := range cands {
-			if c.key == key || (c.role != "" && similarRole(c.role, e.Role)) {
+			if sameRole(c) {
 				return c.key, nil
 			}
 		}

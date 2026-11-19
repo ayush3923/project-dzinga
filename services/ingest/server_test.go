@@ -307,3 +307,24 @@ func TestExplicitMailboxOverridesInclude(t *testing.T) {
 		t.Errorf("unticked mailbox ran in a routine sync: %+v", st)
 	}
 }
+
+// A backfill reads from a one-off date without changing the saved lookback.
+func TestSyncSinceOverride(t *testing.T) {
+	core := &fakeCore{states: map[int64][]map[string]any{}, settings: syncSettings{Lookback: "14d"}, mailboxes: []mailbox{
+		{ID: 2, Address: "me@gmail.com", Provider: "gmail", Enabled: true, CredentialSaved: true},
+	}}
+	s, api, _ := newTestSyncer(t, core, "")
+	s.secrets.Set("me@gmail.com", "apppass")
+	from := s.now().AddDate(0, -2, 0).Format("2006-01-02")
+	if res := call(t, "POST", api.URL+"/v1/sync", "Bearer "+tok, `{"since":"`+from+`"}`); res.StatusCode != 202 {
+		t.Fatalf("start: %d", res.StatusCode)
+	}
+	if st := waitIdle(t, s); len(st.Mailboxes) != 1 || st.Mailboxes[0].Since != from {
+		t.Errorf("state: %+v", st)
+	}
+	for _, bad := range []string{"yesterday", s.now().AddDate(0, 0, 2).Format("2006-01-02"), s.now().AddDate(-2, 0, 0).Format("2006-01-02")} {
+		if res := call(t, "POST", api.URL+"/v1/sync", "Bearer "+tok, `{"since":"`+bad+`"}`); res.StatusCode != 400 {
+			t.Errorf("since %q: %d", bad, res.StatusCode)
+		}
+	}
+}

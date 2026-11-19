@@ -44,6 +44,12 @@ func main() {
 	} else if n > 0 {
 		log.Info("split_merged_applications", "created", n)
 	}
+	if n, err := st.SplitByJobRef(context.Background()); err != nil {
+		log.Error("split applications by requisition id", "err", err)
+		os.Exit(1)
+	} else if n > 0 {
+		log.Info("split_by_job_ref", "created", n)
+	}
 	if n, err := st.MergeOrphanApplications(context.Background()); err != nil {
 		log.Error("merge orphan replies", "err", err)
 		os.Exit(1)

@@ -92,6 +92,8 @@ func (s *Store) EditApplication(ctx context.Context, userID string, id int64, e 
 			if i := strings.Index(key, "@"); i >= 0 { // keep a role-less application's date suffix
 				newKey += key[i:]
 			}
+		} else if i := strings.Index(key, "#"); i >= 0 { // and a requisition id
+			newKey += key[i:]
 		}
 		var other int64
 		_ = tx.QueryRowContext(ctx, `SELECT id FROM applications WHERE user_id = ? AND key = ? AND id != ?`, userID, newKey, id).Scan(&other)

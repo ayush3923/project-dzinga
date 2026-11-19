@@ -41,6 +41,7 @@ type event struct {
 	Role       string    `json:"role"`
 	Kind       string    `json:"kind"`
 	JobURL     string    `json:"job_url,omitempty"`
+	JobRef     string    `json:"job_ref,omitempty"` // requisition id, when the email gives one
 }
 
 func main() {
@@ -141,6 +142,7 @@ func scan(ctx context.Context, s source.Source, since time.Time) ([]event, int, 
 			SenderName: truncate(m.FromName, 200), JobURL: truncate(classify.JobURL(m.Links), 2000),
 			Subject: truncate(m.Subject, 500), Snippet: classify.Snippet(m.Text, 400),
 			Company: truncate(r.Company, 200), Role: truncate(r.Role, 200), Kind: r.Kind,
+			JobRef: truncate(classify.JobRef(m.Subject, m.Text), 40),
 		})
 		return nil
 	})
@@ -204,11 +206,11 @@ func send(ctx context.Context, base, token string, events []event) (int, error) 
 func printTable(events []event) {
 	sort.Slice(events, func(i, j int) bool { return events[i].OccurredAt.After(events[j].OccurredAt) })
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "DATE\tSTAGE\tCOMPANY\tROLE\tFROM\tSUBJECT")
+	fmt.Fprintln(w, "DATE\tSTAGE\tCOMPANY\tROLE\tREQ ID\tFROM\tSUBJECT")
 	for _, e := range events {
 		domain := e.Sender[strings.LastIndex(e.Sender, "@")+1:]
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", e.OccurredAt.Format("2006-01-02"), e.Kind,
-			truncate(e.Company, 28), truncate(e.Role, 34), truncate(domain, 24), truncate(e.Subject, 50))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.OccurredAt.Format("2006-01-02"), e.Kind,
+			truncate(e.Company, 28), truncate(e.Role, 34), e.JobRef, truncate(domain, 24), truncate(e.Subject, 50))
 	}
 	w.Flush()
 	fmt.Printf("\n%d job emails found (dry run: nothing was sent).\n", len(events))

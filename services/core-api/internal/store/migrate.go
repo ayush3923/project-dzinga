@@ -501,6 +501,12 @@ DROP TABLE org_settings;
 DROP TABLE organizations;
 `)
 
+// v15: the requisition id an email gives (jobref.go), so two applications to the same
+// title at one company stay apart.
+var _ = appendMigration(`
+ALTER TABLE events ADD COLUMN job_ref TEXT NOT NULL DEFAULT '';
+`)
+
 // Migrations are listed here, in order, and nowhere else: Go initialises files
 // alphabetically, so a migration declared in another file could run out of order.
 
