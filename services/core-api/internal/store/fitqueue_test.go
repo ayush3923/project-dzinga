@@ -63,6 +63,49 @@ func TestRefreshQueuesFitScores(t *testing.T) {
 	}
 }
 
+// Correcting an application into an existing one carries its pending research across,
+// so the queue never lists an application that no longer exists.
+func TestMergeMovesPendingResearch(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	at := time.Now().UTC()
+	for _, e := range []IngestEvent{
+		{MessageID: "w1", Account: "me@gmail.com", OccurredAt: at.AddDate(0, 0, -30), Sender: "x@y.com", Kind: "applied", Company: "Walmart", Role: "Staff PM"},
+		{MessageID: "w2", Account: "me@gmail.com", OccurredAt: at, Sender: "x@y.com", Kind: "applied", Company: "Unknown company"},
+	} {
+		if _, err := s.Ingest(ctx, "u", []IngestEvent{e}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var walmart, unknown int64
+	s.db.QueryRow(`SELECT id FROM applications WHERE company = 'Walmart'`).Scan(&walmart)
+	s.db.QueryRow(`SELECT id FROM applications WHERE company = 'Unknown company'`).Scan(&unknown)
+	for _, id := range []int64{walmart, unknown} {
+		if _, err := s.RequestResearch(ctx, "u", "fit_score", id, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.RequestResearch(ctx, "u", "job_posting", unknown, at); err != nil {
+		t.Fatal(err)
+	}
+	company, role := "Walmart", "Staff PM"
+	if got, err := s.EditApplication(ctx, "u", unknown, ApplicationEdit{Company: &company, Role: &role}); err != nil || got != walmart {
+		t.Fatalf("merge: id %d, err %v", got, err)
+	}
+	list, _ := s.PendingResearch(ctx, "u")
+	kinds := map[string]int64{}
+	for _, r := range list {
+		kinds[r.Kind] = r.TargetID
+	}
+	if len(list) != 2 || kinds["fit_score"] != walmart || kinds["job_posting"] != walmart {
+		t.Fatalf("queue after merge: %+v", list)
+	}
+}
+
 func TestFitBand(t *testing.T) {
 	for total, want := range map[int]string{100: "strong", 80: "strong", 79: "good", 75: "good", 74: "moderate", 60: "moderate", 59: "weak", 0: "weak"} {
 		if got := FitBand(total); got != want {
