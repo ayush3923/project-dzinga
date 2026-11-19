@@ -82,6 +82,9 @@ func deriveSteps(evs []histEvent) []step {
 	return out
 }
 
+// pathRank orders the stage path. Offer and rejection are both ends.
+var pathRank = map[string]int{"applied": 1, "shortlisted": 2, "assessment": 3, "interview": 4, "offer": 5, "rejected": 5}
+
 func rebuildHistory(ctx context.Context, tx *sql.Tx, userID string, appID int64) error {
 	rows, err := tx.QueryContext(ctx, `SELECT id, occurred_at, kind, subject FROM events
 		WHERE user_id = ? AND application_id = ? ORDER BY occurred_at, id`, userID, appID)
@@ -107,6 +110,13 @@ func rebuildHistory(ctx context.Context, tx *sql.Tx, userID string, appID int64)
 	if err := tx.QueryRowContext(ctx, `SELECT stage_override, override_at FROM applications WHERE id = ?`, appID).
 		Scan(&override, &overrideAt); err != nil {
 		return err
+	}
+	// A manual stage earlier than the emails show is a correction (an acknowledgement
+	// misread as an interview): the steps after it go, so counts follow the user.
+	if override.Valid && pathRank[override.String] > 0 {
+		for len(steps) > 1 && pathRank[steps[len(steps)-1].stage] > pathRank[override.String] {
+			steps = steps[:len(steps)-1]
+		}
 	}
 	if override.Valid && override.String != "" && (len(steps) == 0 || steps[len(steps)-1].stage != override.String) {
 		at, _ := time.Parse(time.RFC3339, overrideAt.String)

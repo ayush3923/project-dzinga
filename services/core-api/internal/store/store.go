@@ -113,6 +113,7 @@ type IngestEvent struct {
 	Role       string    `json:"role"`
 	Kind       string    `json:"kind"`
 	JobURL     string    `json:"job_url,omitempty"` // link to the posting found in the email, if any
+	JobRef     string    `json:"job_ref,omitempty"` // requisition id from the email, if any (jobref.go)
 }
 
 func (e IngestEvent) Validate() error {
@@ -125,6 +126,8 @@ func (e IngestEvent) Validate() error {
 		return fmt.Errorf("invalid kind %q", e.Kind)
 	case e.JobURL != "" && !strings.HasPrefix(e.JobURL, "https://"):
 		return errors.New("job_url must be https")
+	case e.JobRef != "" && !validRef.MatchString(e.JobRef):
+		return errors.New("job_ref must be 1-40 letters, digits, '-' or '_'")
 	case len(e.Snippet) > 2000, len(e.Subject) > 500, len(e.Company) > 200, len(e.Role) > 200,
 		len(e.SenderName) > 200, len(e.JobURL) > 2000:
 		return errors.New("field too long")
@@ -173,9 +176,10 @@ func (s *Store) Ingest(ctx context.Context, userID string, events []IngestEvent)
 			var appID int64
 			if err := tx.QueryRowContext(ctx, `UPDATE events SET
 					job_url     = CASE WHEN job_url = '' THEN ? ELSE job_url END,
-					sender_name = CASE WHEN sender_name = '' THEN ? ELSE sender_name END
+					sender_name = CASE WHEN sender_name = '' THEN ? ELSE sender_name END,
+					job_ref     = CASE WHEN job_ref = '' THEN ? ELSE job_ref END
 				WHERE user_id = ? AND message_id = ? RETURNING application_id`,
-				e.JobURL, e.SenderName, userID, e.MessageID).Scan(&appID); err != nil {
+				e.JobURL, e.SenderName, normRef(e.JobRef), userID, e.MessageID).Scan(&appID); err != nil {
 				return 0, err
 			}
 			if e.SenderName != "" {
@@ -216,9 +220,9 @@ func (s *Store) Ingest(ctx context.Context, userID string, events []IngestEvent)
 		}
 
 		res, err := tx.ExecContext(ctx, `
-			INSERT INTO events (user_id, application_id, message_id, account, occurred_at, sender, sender_name, subject, snippet, kind, job_url, ingested_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			userID, appID, e.MessageID, e.Account, at, e.Sender, e.SenderName, e.Subject, e.Snippet, e.Kind, e.JobURL,
+			INSERT INTO events (user_id, application_id, message_id, account, occurred_at, sender, sender_name, subject, snippet, kind, job_url, job_ref, ingested_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			userID, appID, e.MessageID, e.Account, at, e.Sender, e.SenderName, e.Subject, e.Snippet, e.Kind, e.JobURL, normRef(e.JobRef),
 			time.Now().UTC().Format(time.RFC3339Nano))
 		if err != nil {
 			return 0, fmt.Errorf("insert event: %w", err)

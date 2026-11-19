@@ -189,7 +189,9 @@ func since(set syncSettings, m mailbox, now time.Time) time.Time {
 
 // ---------- sync ----------
 
-func (s *syncer) start(ids []int64) (runState, error) {
+// start runs a sync of the given mailboxes (all ticked ones when empty). from, when
+// set, is a one-off start date for this run (a backfill); the saved lookback is unchanged.
+func (s *syncer) start(ids []int64, from *time.Time) (runState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state.Running {
@@ -197,7 +199,7 @@ func (s *syncer) start(ids []int64) (runState, error) {
 	}
 	now := s.now()
 	s.state = runState{Running: true, StartedAt: &now, Mailboxes: []progress{}}
-	go s.run(ids)
+	go s.run(ids, from)
 	return s.state, nil
 }
 
@@ -207,7 +209,7 @@ func (s *syncer) update(f func(*runState)) {
 	f(&s.state)
 }
 
-func (s *syncer) run(ids []int64) {
+func (s *syncer) run(ids []int64, override *time.Time) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	defer s.update(func(st *runState) {
@@ -230,16 +232,22 @@ func (s *syncer) run(ids []int64) {
 			queue = append(queue, m)
 		}
 	}
+	startOf := func(m mailbox) time.Time {
+		if override != nil {
+			return *override
+		}
+		return since(settings, m, s.now())
+	}
 	s.update(func(st *runState) {
 		for _, m := range queue {
 			st.Mailboxes = append(st.Mailboxes, progress{ID: m.ID, Address: m.Address, Status: "pending",
-				Since: since(settings, m, s.now()).Format("2006-01-02")})
+				Since: startOf(m).Format("2006-01-02")})
 		}
 	})
 	for i, m := range queue {
 		set := func(f func(*progress)) { s.update(func(st *runState) { f(&st.Mailboxes[i]) }) }
 		set(func(p *progress) { p.Status = "scanning" })
-		from := since(settings, m, s.now())
+		from := startOf(m)
 		secret, err := s.secrets.Get(m.Address)
 		if err != nil {
 			msg := "no saved credential: reconnect this mailbox"
@@ -458,6 +466,7 @@ func (s *syncer) handler() http.Handler {
 	mux.HandleFunc("POST /v1/sync", auth(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			MailboxIDs []int64 `json:"mailbox_ids"`
+			Since      string  `json:"since"` // optional one-off start date (YYYY-MM-DD), within the last year
 		}
 		if r.ContentLength > 0 {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.MailboxIDs) > 20 {
@@ -465,7 +474,16 @@ func (s *syncer) handler() http.Handler {
 				return
 			}
 		}
-		st, err := s.start(body.MailboxIDs)
+		var from *time.Time
+		if body.Since != "" {
+			t, err := time.Parse("2006-01-02", body.Since)
+			if err != nil || t.After(s.now()) || t.Before(s.now().AddDate(-1, 0, 0)) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "since must be a date (YYYY-MM-DD) within the last year"})
+				return
+			}
+			from = &t
+		}
+		st, err := s.start(body.MailboxIDs, from)
 		if err != nil {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 			return

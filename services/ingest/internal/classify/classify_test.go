@@ -494,3 +494,33 @@ func TestATSAndAgencyEmails(t *testing.T) {
 		})
 	}
 }
+
+func TestJobRef(t *testing.T) {
+	for _, c := range []struct{ subject, text, want string }{
+		{"Thank you for Applying!", "Thank you for applying to our STAFF, PRODUCT MANAGER position. … Job Requisition ID: R-2312345 Business Unit: Walmart Global Tech", "R-2312345"},
+		{"", "Position: Staff, Product Manager (R-2287654)", "R-2287654"},
+		{"Application received – Req #48213", "", "48213"},
+		{"", "We received your application for Job ID: JR0012345.", "JR0012345"},
+		{"", "Requisition Number - 2026-1187", "2026-1187"},
+		{"", "Reference: Senior PM, job code 7731", "7731"},
+		{"", "Call us at 1800 123 4567 or visit our site. Posting date: 2026-11-14", ""}, // unlabelled numbers and dates don't count
+		{"", "Thank you for your interest in the position.", ""},
+	} {
+		if got := JobRef(c.subject, c.text); got != c.want {
+			t.Errorf("JobRef(%q, %q) = %q, want %q", c.subject, c.text, got, c.want)
+		}
+	}
+}
+
+// "Thanks for Completing Your Application" is an acknowledgement, even when the body
+// goes on to mention interviews (2026-11-19: Atlassian showed as interviewing).
+func TestCompletedApplicationIsApplied(t *testing.T) {
+	r, ok := Classify(Message{FromName: "Atlassian", FromAddr: "atlassian+autoreply@talent.icims.com",
+		Subject: "Atlassian: Thanks for Completing Your Application",
+		Text: "Hello Ayush, Thank you again for your interest in the Principal Technical Product Manager - Commerce (Billing & Monetization) position. " +
+			"Our team is still reviewing applications for this role. You can expect to hear from us soon if your experience is a good fit, " +
+			"and we will reach out to schedule an interview."})
+	if !ok || r.Kind != "applied" || r.Company != "Atlassian" {
+		t.Errorf("got %+v ok=%v", r, ok)
+	}
+}

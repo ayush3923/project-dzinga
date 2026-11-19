@@ -227,6 +227,15 @@ components:
         company: { type: string, maxLength: 200 }
         role: { type: string, maxLength: 200 }
         kind: { $ref: "#/components/schemas/EventKind" }
+        sender_name: { type: string, maxLength: 200 }
+        job_url: { type: string, maxLength: 2000, description: https link to the posting found in the email }
+        job_ref:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{1,40}$"
+          description: >
+            Requisition id from the email body (e.g. R-2312345). Applications to the same role
+            with different ids stay separate; re-sending a stored message fills in a missing id,
+            and maintenance splits applications that hold two.
     Summary:
       type: object
       required: [total, by_stage, needs_nudge, recent_events]

@@ -11,7 +11,7 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 | Table | One row per | Key columns | Written by |
 |---|---|---|---|
 | `applications` | job application (company + role) | company, role, stage, stage_override, applied_at, last_activity_at, rounds_done, next_step | ingest (via core-api), user (stage override, interview progress) |
-| `events` | job-related email | message_id (unique per user), account, occurred_at, sender, sender_name, subject, snippet (≤400 chars), kind, job_url | ingest |
+| `events` | job-related email | message_id (unique per user), account, occurred_at, sender, sender_name, subject, snippet (≤400 chars), kind, job_url, job_ref (requisition id; the only thing kept from the rest of the body) | ingest |
 | `stage_history` | step in an application's path | stage (applied, shortlisted, assessment, interview, offer, rejected), round, entered_at, event_id, source (email or manual) | core-api, rebuilt from `events` |
 | `contacts` | person who emailed the user about an application | name, email, role_hint, source (mailbox or posting) | core-api, from received mail only |
 | `job_postings` | researched posting behind an application (1:1) | status, source (email_link, web_search, none), url, title, location, work_mode, seniority, min_years, product_context, hiring_manager_name / _title | agent |
@@ -73,6 +73,9 @@ of the name), read from core-api's analysis on each request.
   contact of the same application only.
 - An application has many `interview_notes` and `interview_reviews`; merging two
   applications moves both.
+- Emails with different requisition ids (`job_ref`) for the same company and role are
+  different applications; an email without one joins the role's latest application by
+  then. A manual stage earlier than the emails show replaces the steps after it.
 - Across services, an application belongs to the organization whose key matches its
   company's; nothing stores the link, so correcting the company moves it.
 

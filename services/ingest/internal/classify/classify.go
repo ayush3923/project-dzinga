@@ -96,7 +96,7 @@ var (
 		`(hackerrank|codility|codesignal|mettl|hackerearth|testgorilla)\b.{0,40}\b(test|challenge|invite|invitation)`)
 	// "Applied" needs an explicit acknowledgement. Looser phrases ("thank you for your
 	// interest", "you applied", "application submitted") let in marketing and loan mail.
-	applied = re(`thank(s| you) for (applying|your (job )?application|submitting your application)|` +
+	applied = re(`thank(s| you)( again)? for (applying|your (job )?application|(submitting|completing) your (job )?application)|` +
 		`(we('ve| have)? |has been )?received your (job )?application|receipt of your application|` +
 		`your application (has been|was|is) received|application (has been )?received|` +
 		`your application was sent to|successfully applied (to|for)`)
@@ -515,6 +515,42 @@ func Snippet(text string, n int) string {
 		cut = cut[:i]
 	}
 	return cut + "…"
+}
+
+// Requisition ids: two applications to the same title at one company ("Staff, Product
+// Manager" twice at Walmart) differ only by the id in the body. A labelled id ("Job
+// Requisition ID: R-2312345", "Job ID: 12345", "Req #4567") or a Workday-style token
+// (R-2312345, JR12345, REQ-1234) counts; bare numbers don't, since they could be anything.
+var (
+	// "Job ID 123" needs the id word; a bare label needs a separator ("Requisition: R-1").
+	jobRefLabelled = re(`\b(?:job\s+requisition|requisition|req|job|position|vacancy|posting|opening)` +
+		`(?:\s*(?:id|no\.?|number|code|ref(?:erence)?)\s*(?:[:#]|\bis\b|-)?|\s*(?:[:#]|\bis\b|-))\s*#?\s*` +
+		`([a-z]{0,5}[-_]?\d[\d_-]{2,14}[a-z]?)\b`)
+	jobRefToken = regexp.MustCompile(`\b(R-\d{5,9}|JR-?\d{4,9}|REQ-?\d{4,9})\b`)
+)
+
+// JobRef finds a requisition id in the subject or body, normalised (upper case, no
+// spaces), or "" when there is none. Only the id is kept, never the body around it.
+func JobRef(subject, text string) string {
+	for _, s := range []string{subject, firstChars(text, 20000)} {
+		var ref string
+		if m := jobRefLabelled.FindStringSubmatch(s); m != nil {
+			ref = m[1]
+		} else if m := jobRefToken.FindStringSubmatch(s); m != nil {
+			ref = m[1]
+		}
+		ref = strings.ToUpper(strings.Trim(ref, "-_"))
+		digits := 0
+		for _, r := range ref {
+			if unicode.IsDigit(r) {
+				digits++
+			}
+		}
+		if digits >= 4 && digits <= 12 {
+			return ref
+		}
+	}
+	return ""
 }
 
 // Job-posting URL shapes on common applicant-tracking systems and job sites.
