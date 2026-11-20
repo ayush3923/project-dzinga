@@ -107,3 +107,16 @@ func TestDigestSeries(t *testing.T) {
 		t.Errorf("trends %+v last %s", d.Trends, d.Series[6].Date)
 	}
 }
+
+func TestLowerFirstKeepsNamesAndAcronyms(t *testing.T) {
+	for in, want := range map[string]string{
+		"Round 2 (TP2) interview, Fri 20 Nov, 3:30pm IST, with Mohit Bindroo": "round 2 (TP2) interview, Fri 20 Nov, 3:30pm IST, with Mohit Bindroo",
+		"Final Decision": "final Decision",
+		"HR call":        "HR call",
+		"":               "",
+	} {
+		if got := lowerFirst(in); got != want {
+			t.Errorf("lowerFirst(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

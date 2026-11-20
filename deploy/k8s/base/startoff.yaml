@@ -1,0 +1,106 @@
+# The startoff service (ADR 0011): the 07:00 daily run and company research with its
+# history, in its own SQLite database on its own volume.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: startoff
+automountServiceAccountToken: false
+---
+# local-path deletes the data when this claim is deleted: never run `kubectl delete -k`
+# against this namespace without a fresh snapshot (deploy/README.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: startoff-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi # research history and run log: text only
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: startoff
+spec:
+  type: ClusterIP
+  selector:
+    app: startoff
+  ports:
+    - { name: http, port: 8086, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: startoff
+spec:
+  replicas: 1 # SQLite allows one writer, and the volume lives on one node
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: startoff
+  template:
+    metadata:
+      labels:
+        app: startoff
+    spec:
+      serviceAccountName: startoff
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # The on-demand server node: on a spot node, the data would go when the node does.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: startoff
+          image: dzinga/startoff:unset
+          ports:
+            - { name: http, containerPort: 8086 }
+          env:
+            - { name: DZ_STARTOFF_ADDR, value: "0.0.0.0:8086" }
+            - { name: DZ_STARTOFF_DB_PATH, value: /data/startoff.db }
+            - { name: DZ_ORGS_URL, value: "http://orgs:8085" }
+            - { name: DZ_INGEST_URL, value: "http://ingest:8083" }
+            - { name: DZ_QUIZ_URL, value: "http://quiz:8084" }
+            - { name: DZ_TIMEZONE, value: Asia/Kolkata }
+            - { name: DZ_DAILY_AT, value: "07:00" }
+            - name: DZ_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef: { name: dzinga-internal, key: internal-token }
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: startoff-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

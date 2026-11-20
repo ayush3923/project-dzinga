@@ -18,7 +18,7 @@ SINCE_FLAG = $(if $(SINCE),--since $(SINCE),)
 CORE_PORT ?= 8091
 CORE_URL = http://127.0.0.1:$(CORE_PORT)
 
-.PHONY: help env core-api ingest-service quiz orgs orgs-import agent web ingest-gmail preview-gmail ingest-yahoo preview-yahoo ingest-outlook preview-outlook demo test test-go test-web vuln images k8s-validate
+.PHONY: help env core-api ingest-service quiz orgs orgs-import startoff startoff-import agent web ingest-gmail preview-gmail ingest-yahoo preview-yahoo ingest-outlook preview-outlook demo test test-go test-web vuln images k8s-validate
 
 help:
 	@echo "make core-api                        start the API on 127.0.0.1:$(CORE_PORT)"
@@ -26,9 +26,11 @@ help:
 	@echo "make quiz                            start the quiz service on 127.0.0.1:8084 (daily quiz)"
 	@echo "make orgs                            start the organizations service on 127.0.0.1:8085"
 	@echo "make orgs-import FROM=<core db>      once: copy organizations from core-api's database (before its v14)"
+	@echo "make startoff                        start the daily-jobs service on 127.0.0.1:8086 (07:00 run, company research)"
+	@echo "make startoff-import FROM=<orgs db>  once: copy research from the organizations database (at its v2, before v3)"
 	@echo "make agent                           start the Claude agent on 127.0.0.1:8082 (needs ANTHROPIC_API_KEY in .env.local)"
 	@echo "make web                             start the web app on http://localhost:3000"
-	@echo "make images REGISTRY=<ecr>           build and push all six container images"
+	@echo "make images REGISTRY=<ecr>           build and push all seven container images"
 	@echo "make k8s-validate                    validate and lint the Kubernetes manifests"
 	@echo "make preview-yahoo EMAIL=you@yahoo.com  dry run: list job emails found, send nothing"
 	@echo "make ingest-yahoo EMAIL=you@yahoo.com   import job emails from Yahoo"
@@ -70,12 +72,24 @@ orgs-import: env
 	@test -n "$(FROM)" || { echo "usage: make orgs-import FROM=data/backups/dzinga-….db"; exit 1; }
 	cd services/orgs && DZ_ORGS_DB_PATH=$(CURDIR)/data/orgs.db go run . -import-core "$(abspath $(FROM))"
 
+# Startoff (ADR 0011): the 07:00 daily run and company research, in its own database (data/startoff.db).
+STARTOFF_URL = http://127.0.0.1:8086
+startoff: env
+	cd services/startoff && DZ_INTERNAL_TOKEN=$(TOKEN) DZ_STARTOFF_ADDR=127.0.0.1:8086 DZ_STARTOFF_DB_PATH=$(CURDIR)/data/startoff.db \
+		DZ_ORGS_URL=$(ORGS_URL) go run .
+
+# One-time move of research out of the organizations service, read-only from FROM (its
+# database at v2, or a backup of it). Run before the organizations service's v3.
+startoff-import: env
+	@test -n "$(FROM)" || { echo "usage: make startoff-import FROM=data/backups/orgs-….db"; exit 1; }
+	cd services/startoff && DZ_STARTOFF_DB_PATH=$(CURDIR)/data/startoff.db go run . -import-orgs "$(abspath $(FROM))"
+
 agent: env
 	@grep -q '^ANTHROPIC_API_KEY=.' $(ENV_FILE) || { echo "Add ANTHROPIC_API_KEY=... to .env.local first (it stays on your Mac)"; exit 1; }
-	cd services/agent && DZ_INTERNAL_TOKEN=$(TOKEN) DZ_CORE_URL=$(CORE_URL) DZ_ORGS_URL=$(ORGS_URL) ANTHROPIC_API_KEY=$(ANTHROPIC_KEY) go run .
+	cd services/agent && DZ_INTERNAL_TOKEN=$(TOKEN) DZ_CORE_URL=$(CORE_URL) DZ_ORGS_URL=$(ORGS_URL) DZ_STARTOFF_URL=$(STARTOFF_URL) ANTHROPIC_API_KEY=$(ANTHROPIC_KEY) go run .
 
 web: env
-	cd apps/web && DZ_INTERNAL_TOKEN=$(TOKEN) CORE_API_URL=$(CORE_URL) ORGS_API_URL=$(ORGS_URL) DZ_DISPLAY_NAME=$$(grep DZ_DISPLAY_NAME ../../$(ENV_FILE) | cut -d= -f2) pnpm dev
+	cd apps/web && DZ_INTERNAL_TOKEN=$(TOKEN) CORE_API_URL=$(CORE_URL) ORGS_API_URL=$(ORGS_URL) STARTOFF_API_URL=$(STARTOFF_URL) DZ_DISPLAY_NAME=$$(grep DZ_DISPLAY_NAME ../../$(ENV_FILE) | cut -d= -f2) pnpm dev
 
 preview-yahoo:
 	@test -n "$(EMAIL)" || { echo "usage: make preview-yahoo EMAIL=you@yahoo.com"; exit 1; }
@@ -123,6 +137,7 @@ test-go:
 	cd services/agent && go vet ./... && go test -race -cover ./...
 	cd services/quiz && go vet ./... && go test -race -cover ./...
 	cd services/orgs && go vet ./... && go test -race -cover ./...
+	cd services/startoff && go vet ./... && go test -race -cover ./...
 
 test-web:
 	cd apps/web && pnpm typecheck && pnpm lint && pnpm test
@@ -133,6 +148,7 @@ vuln:
 	cd services/agent && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	cd services/quiz && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	cd services/orgs && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	cd services/startoff && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	cd apps/web && pnpm audit --prod
 
 # Container images (ADR 0006). Needs Docker with buildx and an ECR login:
@@ -142,7 +158,7 @@ IMAGE_TAG ?= $$(git rev-parse --short HEAD)
 images:
 	@test -n "$(REGISTRY)" || { echo "Set REGISTRY=<account>.dkr.ecr.ap-south-1.amazonaws.com"; exit 1; }
 	@test -z "$$(git status --porcelain)" || { echo "Commit first: image tags name a git commit"; exit 1; }
-	for s in core-api agent ingest quiz orgs; do \
+	for s in core-api agent ingest quiz orgs startoff; do \
 		docker buildx build --platform $(PLATFORM) --provenance=true --sbom=true --push -t $(REGISTRY)/dzinga/$$s:$(IMAGE_TAG) services/$$s || exit 1; \
 	done
 	docker buildx build --platform $(PLATFORM) --provenance=true --sbom=true --push -t $(REGISTRY)/dzinga/web:$(IMAGE_TAG) apps/web

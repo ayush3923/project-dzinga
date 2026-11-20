@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Rail } from "@/components/Rail";
+import { Suspense } from "react";
 import { SyncButton } from "@/components/SyncButton";
+import { TopStatus } from "@/components/TopStatus";
 import "./globals.css";
 
 // Inter, as in CCI (NRDS). next/font serves it from this app: no third-party request.
@@ -19,7 +21,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <div className="shell">
           <Rail />
           <main className="main">
-            <header className="topbar"><SyncButton /></header>
+            <header className="topbar">
+              <SyncButton />
+              <Suspense fallback={null}><TopStatus /></Suspense>
+            </header>
             {children}
           </main>
         </div>

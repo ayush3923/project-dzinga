@@ -121,9 +121,32 @@ paths:
       responses:
         "202": { description: Queued; returns research_requested_at }
         "404": { description: No such application }
+  /api/v1/applications/{id}/outreach-request:
+    post:
+      summary: >
+        Queue a cold email for Claude's next run ({contact_id} for a contact on the
+        application, or {recipient} as typed, at most 120 characters). Asking again while
+        one is pending updates who it's for. The analysis row's draft_state is "queued"
+        until the draft is saved, then "ready" until it's opened.
+      responses:
+        "202": { description: Queued; returns outreach_requested_at }
+        "400": { description: The contact isn't on this application, or the recipient is too long }
+        "404": { description: No such application }
+  /api/v1/applications/{id}/drafts/seen:
+    post:
+      summary: Mark the application's drafts as opened (clears draft_state "ready")
+      responses:
+        "204": { description: Done }
+  /internal/v1/applications/{id}/outreach:
+    post:
+      summary: Save a cold email draft (subject, body, model; recipient or contact_id; optional product_analysis and points). Completes a queued outreach request.
+      security: [{ internalToken: [] }]
+      responses:
+        "201": { description: Saved; returns the draft id }
+        "400": { description: Missing subject, body or model, or a contact from another application }
   /internal/v1/research-requests:
     get:
-      summary: Claude's pending work, oldest first
+      summary: Claude's pending work, oldest first - job_posting, fit_score, interview_review, outreach (with contact_id or recipient)
       security: [{ internalToken: [] }]
   /api/v1/applications/{id}/interview-notes:
     post:

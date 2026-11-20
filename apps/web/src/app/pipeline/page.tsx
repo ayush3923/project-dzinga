@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { api, type AppDetail, type Application } from "@/lib/api";
 import { STAGES, STAGE_META, isStage, relativeDays, roundsLabel, shortDate, type StageKey } from "@/lib/format";
@@ -39,6 +40,7 @@ function hrefWith(p: Params, patch: Partial<Params>) {
 }
 
 async function Board({ searchParams }: { searchParams: PageProps<"/pipeline">["searchParams"] }) {
+  await connection(); // "days quiet" uses today's date: render per request, before any fetch
   const sp = await searchParams;
   const p: Params = {
     stage: (() => { const s = one(sp.stage); return isStage(s) ? s : undefined; })(),

@@ -285,23 +285,6 @@ func (s *Store) AnswerQuestion(ctx context.Context, userID string, questionID in
 	return s.Question(ctx, userID, questionID, false)
 }
 
-// SaveFeedback stores Claude's feedback on a written or spoken answer.
-func (s *Store) SaveFeedback(ctx context.Context, userID string, questionID int64, transcript, feedback string, score int, now time.Time) error {
-	if strings.TrimSpace(feedback) == "" || score < 0 || score > 10 {
-		return errors.New("feedback is required and score must be 0-10")
-	}
-	x, err := s.Question(ctx, userID, questionID, true)
-	if err != nil {
-		return err
-	}
-	if x.Kind == "mcq" || x.Response == nil {
-		return ErrBadAnswer
-	}
-	_, err = s.db.ExecContext(ctx, `UPDATE quiz_answers SET transcript = ?, feedback = ?, score = ?, feedback_at = ? WHERE question_id = ?`,
-		truncate(strings.TrimSpace(transcript), 8000), truncate(strings.TrimSpace(feedback), 2000), score, now.UTC().Format(time.RFC3339), questionID)
-	return err
-}
-
 // QuizHistory lists recent quizzes, newest first.
 func (s *Store) QuizHistory(ctx context.Context, userID string, limit int) ([]QuizDay, error) {
 	out := []QuizDay{}

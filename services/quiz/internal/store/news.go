@@ -111,6 +111,11 @@ type Stats struct {
 	FeedbackQueued int        `json:"feedback_queued"` // answers awaiting feedback
 	Days           []QuizDay  `json:"days"`            // last 14 quizzes, newest first
 	LastAnsweredAt *time.Time `json:"last_answered_at"`
+	// Improvement drills checked in the last 7 days, and how well they were followed
+	// (met = 1, partly = ½), 0-100; nil when none were checked.
+	DrillsChecked7d int  `json:"drills_checked_7d"`
+	FollowThrough7d *int `json:"follow_through_7d"`
+	DrillsOpen      int  `json:"drills_open"`
 }
 
 func pct(n, d int) *int {
@@ -158,6 +163,12 @@ func (s *Store) Stats(ctx context.Context, userID string, now time.Time) (Stats,
 		st.LastAnsweredAt = &t
 	}
 	if st.Days, err = s.QuizHistory(ctx, userID, 14); err != nil {
+		return st, err
+	}
+	if st.FollowThrough7d, st.DrillsChecked7d, err = s.FollowThrough(ctx, userID, weekAgo); err != nil {
+		return st, err
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM drills WHERE user_id = ? AND status = 'open'`, userID).Scan(&st.DrillsOpen); err != nil {
 		return st, err
 	}
 	// Streak: consecutive days with an answer, counting back from today (or

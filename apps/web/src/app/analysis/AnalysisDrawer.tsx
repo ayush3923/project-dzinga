@@ -261,6 +261,8 @@ export async function AnalysisDrawer({ a, closeHref, siblings, siblingHref }: {
               disabled={!profileReady}
               contacts={d.contacts.map((c) => ({ id: c.id, label: c.name ? `${c.name} (${c.email})` : c.email }))}
               draft={d.drafts[0] ?? null}
+              queuedAt={d.outreach_requested_at}
+              queuedFor={d.outreach_recipient}
             />
           </section>
         )}

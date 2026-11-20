@@ -39,6 +39,10 @@ ownership, as ADR 0008 did for the quiz.
   diagnosis or one out of date). Claude works them per the runbook, as with profiles
   (ADR 0007), instead of the agent's rules-plus-Sonnet path. A new diagnosis flags the
   organization on the list until it is opened.
+- **Update (2026-11-20): research moved to the startoff service (ADR 0011).** Company
+  profiles, quiz briefings and news, diagnoses and the research queue now live there
+  with their history; this service keeps organizations, the preferred list, statistics
+  and suggestions. Its migration v3 drops the research tables.
 
 ## Consequences
 

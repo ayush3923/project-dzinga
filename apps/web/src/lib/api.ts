@@ -71,6 +71,7 @@ export class ApiError extends Error {
 
 const QUIZ_BASE = process.env.QUIZ_API_URL ?? "http://127.0.0.1:8084";
 const ORGS_BASE = process.env.ORGS_API_URL ?? "http://127.0.0.1:8085";
+const STARTOFF_BASE = process.env.STARTOFF_API_URL ?? "http://127.0.0.1:8086";
 
 function call<T>(path: string, init?: RequestInit): Promise<T> {
   return request<T>(BASE, "core-api", path, init);
@@ -79,6 +80,11 @@ function call<T>(path: string, init?: RequestInit): Promise<T> {
 /** The organizations service (ADR 0010). */
 function orgsCall<T>(path: string, init?: RequestInit): Promise<T> {
   return request<T>(ORGS_BASE, "The organizations service", path, init);
+}
+
+/** The startoff service (ADR 0011): daily runs and company research with its history. */
+function startoffCall<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(STARTOFF_BASE, "The startoff service", path, init);
 }
 
 /** The quiz service (ADR 0008). */
@@ -160,6 +166,8 @@ export interface AppAnalysis extends Application {
   interview_rounds: number;
   fit: { total: number; band: FitBand; verdict: string; created_at: string } | null;
   posting_url: string;
+  /** The cold email: queued for Claude, ready (drafted, not opened yet), drafted, or "". */
+  draft_state: "" | "queued" | "ready" | "drafted";
 }
 
 export interface DurationStat {
@@ -239,6 +247,10 @@ export interface AppDetail {
   drafts: {
     id: number;
     contact_id: number | null;
+    /** Who it's for, when not a contact. */
+    recipient: string;
+    /** Not opened yet. */
+    new: boolean;
     subject: string;
     body: string;
     product_analysis: string;
@@ -251,6 +263,9 @@ export interface AppDetail {
   job_links: string[];
   research_requested_at: string | null;
   fit_requested_at: string | null;
+  /** When a cold email was queued for Claude, and for whom. */
+  outreach_requested_at: string | null;
+  outreach_recipient: string;
 }
 
 export interface Experience {
@@ -288,6 +303,23 @@ export interface QuizStats {
   feedback_queued: number;
   days: { day: string; answered: number; correct: number; total: number }[];
   last_answered_at: string | null;
+  drills_checked_7d: number;
+  /** How well improvement drills checked in the last 7 days were followed, 0–100. */
+  follow_through_7d: number | null;
+  drills_open: number;
+}
+
+/** Something feedback asked you to do next time, and whether a later answer did it. */
+export interface Drill {
+  id: number;
+  day: string;
+  kind: "subjective" | "voice" | "any";
+  text: string;
+  status: "open" | "met" | "partly" | "missed";
+  checked_day?: string;
+  check_note?: string;
+  created_at: string;
+  checked_at: string | null;
 }
 
 export interface NewsItem {
@@ -317,12 +349,29 @@ export interface OrgSummary {
   avg_response_days: number | null;
   diagnosis_suggested: boolean;
   diagnosis_reason: string;
+  /** The rest are from the startoff service; false when it isn't reachable. */
   has_profile: boolean;
   has_diagnosis: boolean;
   /** Something new from the daily quiz (news, leaders, revenue) not opened yet. */
   briefing_unseen: boolean;
   /** A diagnosis written since the organization was last opened. */
   diagnosis_unseen: boolean;
+}
+
+/** What the startoff service shows on the organizations list. */
+type OrgFlags = Pick<OrgSummary, "has_profile" | "has_diagnosis" | "briefing_unseen" | "diagnosis_unseen"> & { organization_id: number };
+
+const NO_FLAGS = { has_profile: false, has_diagnosis: false, briefing_unseen: false, diagnosis_unseen: false };
+
+/** One daily run (the 07:00 timer, the Refresh button or Claude) and its steps. */
+export interface DailyRun {
+  id: number;
+  day: string;
+  trigger: "timer" | "manual" | "claude";
+  status: "running" | "done" | "partial";
+  started_at: string;
+  finished_at: string | null;
+  steps: { name: string; status: "done" | "skipped" | "failed"; detail: string; finished_at: string }[];
 }
 
 /** A company worth applying to now, from your own history (organizations service). */
@@ -358,23 +407,30 @@ export interface Briefing {
   news: { day: string; title: string; summary: string; source_title: string; url: string; published_on: string }[];
   model: string;
   updated_at: string;
-  seen_at: string | null;
+}
+
+export interface Diagnosis {
+  summary: string;
+  causes: { text: string; confidence: "high" | "medium" | "low" }[];
+  actions: string[];
+  model: string;
+  created_at: string;
 }
 
 export interface OrgDetail extends OrgSummary {
   application_history: AppAnalysis[];
   briefing: Briefing | null;
   research_requested_at: string | null;
-  /** When a diagnosis was queued for Claude (each refresh queues 5 at random). */
+  /** When a diagnosis was queued for Claude (each daily run keeps 5 queued). */
   diagnosis_requested_at: string | null;
   profile: CompanyProfile | null;
-  diagnosis: {
-    summary: string;
-    causes: { text: string; confidence: "high" | "medium" | "low" }[];
-    actions: string[];
-    model: string;
-    created_at: string;
-  } | null;
+  /** How many profiles have been written (all are kept). */
+  profile_versions: number;
+  /** All quiz news kept for this organization; the briefing shows the newest 10. */
+  news_count: number;
+  diagnosis: Diagnosis | null;
+  /** Earlier diagnoses, newest first (up to 10). */
+  earlier_diagnoses: Diagnosis[];
 }
 
 export type Lookback = "since_last" | "14d" | "1m" | "2m" | "3m" | "6m" | "12m" | "custom";
@@ -507,8 +563,30 @@ export const api = {
     ingestCall<{ verification_uri: string; user_code: string; expires_in: number }>("POST", `/v1/mailboxes/${id}/microsoft`),
   microsoftStatus: (id: number) => ingestCall<{ status: "pending" | "connected" | "error"; error?: string }>("GET", `/v1/mailboxes/${id}/microsoft`),
   disconnect: (id: number, forget: boolean) => ingestCall<void>("DELETE", `/v1/mailboxes/${id}${forget ? "?forget=true" : ""}`),
-  organizations: () => orgsCall<OrgsReport>("/api/v1/organizations"),
-  organization: (id: number) => orgsCall<OrgDetail>(`/api/v1/organizations/${id}`),
+  /** Organizations (orgs service) with their research flags (startoff service). */
+  organizations: async (): Promise<OrgsReport> => {
+    const [rep, flags] = await Promise.all([
+      orgsCall<Omit<OrgsReport, "preferred" | "organizations"> & { preferred: OrgSummary[]; organizations: OrgSummary[] }>("/api/v1/organizations"),
+      startoffCall<{ flags: OrgFlags[] }>("/api/v1/organizations/flags").then((r) => r.flags).catch(() => [] as OrgFlags[]),
+    ]);
+    const byId = new Map(flags.map((f) => [f.organization_id, f]));
+    const merge = (o: OrgSummary): OrgSummary => {
+      const f = byId.get(o.id);
+      return { ...o, ...NO_FLAGS, ...(f && { has_profile: f.has_profile, has_diagnosis: f.has_diagnosis, briefing_unseen: f.briefing_unseen, diagnosis_unseen: f.diagnosis_unseen }) };
+    };
+    return { ...rep, preferred: rep.preferred.map(merge), organizations: rep.organizations.map(merge) };
+  },
+  /** One organization (orgs service) with its research (startoff service). */
+  organization: async (id: number): Promise<OrgDetail> => {
+    const [o, r] = await Promise.all([
+      orgsCall<OrgDetail>(`/api/v1/organizations/${id}`),
+      startoffCall<Partial<OrgDetail>>(`/api/v1/organizations/${id}`).catch(() => ({}) as Partial<OrgDetail>),
+    ]);
+    return {
+      ...o, ...NO_FLAGS, profile: null, briefing: null, diagnosis: null, earlier_diagnoses: [], research_requested_at: null,
+      diagnosis_requested_at: null, profile_versions: 0, news_count: 0, ...r, id: o.id,
+    };
+  },
   /** An organization's id from a company name (applications link by company). */
   organizationId: (company: string) =>
     orgsCall<{ id: number }>(`/api/v1/organizations/lookup?company=${encodeURIComponent(company)}`).then((r) => r.id),
@@ -516,17 +594,21 @@ export const api = {
     orgsCall<OrgsReport>("/api/v1/organizations/preferred", { method: "PUT", body: JSON.stringify({ names, auto }) }),
   suggestions: () => orgsCall<{ suggestions: Suggestion[] }>("/api/v1/suggestions").then((r) => r.suggestions),
   requestResearch: (kind: "organizations" | "applications", id: number) =>
-    (kind === "organizations" ? orgsCall : call)<{ research_requested_at: string }>(`/api/v1/${kind}/${id}/research`, { method: "POST" }),
+    (kind === "organizations" ? startoffCall : call)<{ research_requested_at: string }>(`/api/v1/${kind}/${id}/research`, { method: "POST" }),
   /** Opening an organization clears its flags (quiz briefing and new diagnosis). */
-  organizationSeen: (id: number) => orgsCall<void>(`/api/v1/organizations/${id}/seen`, { method: "POST" }),
+  organizationSeen: (id: number) => startoffCall<void>(`/api/v1/organizations/${id}/seen`, { method: "POST" }),
   requestDiagnosis: (id: number) =>
-    orgsCall<{ diagnosis_requested_at: string }>(`/api/v1/organizations/${id}/diagnosis-request`, { method: "POST" }),
+    startoffCall<{ diagnosis_requested_at: string }>(`/api/v1/organizations/${id}/diagnosis-request`, { method: "POST" }),
+  /** Starts today's run now: refresh every mailbox, request the quiz, queue diagnoses. */
+  startRun: () => startoffCall<DailyRun>("/api/v1/runs", { method: "POST" }),
+  runs: (limit = 7) => startoffCall<{ runs: DailyRun[] }>(`/api/v1/runs?limit=${limit}`).then((r) => r.runs),
   addInterviewNote: (id: number, note: { round: number; body: string }) =>
     call<InterviewNote>(`/api/v1/applications/${id}/interview-notes`, { method: "POST", body: JSON.stringify(note) }),
   prep: () => quizCall<{ day: string; items: PrepQuestion[] }>("/api/v1/prep"),
   requestFit: (id: number) =>
     call<{ research_requested_at: string }>(`/api/v1/applications/${id}/fit-request`, { method: "POST" }),
   quizStats: () => quizCall<QuizStats>("/api/v1/stats"),
+  drills: () => quizCall<{ open: Drill[]; recent: Drill[] }>("/api/v1/drills"),
   news: () => quizCall<{ day: string; items: NewsItem[] }>("/api/v1/news"),
   uploadPhoto: (photo: Blob) =>
     call<Profile>("/api/v1/profile/photo", {
@@ -551,6 +633,10 @@ export const api = {
     return res;
   },
   runFit: (id: number) => agentCall<unknown>(`/v1/applications/${id}/fit`),
-  runOutreach: (id: number, contactId: number | null) =>
-    agentCall<unknown>(`/v1/applications/${id}/outreach`, { contact_id: contactId }),
+  /** Queues a cold email for Claude; it's drafted on the next run. */
+  requestOutreach: (id: number, contactId: number | null, recipient: string) =>
+    call<{ outreach_requested_at: string }>(`/api/v1/applications/${id}/outreach-request`, {
+      method: "POST", body: JSON.stringify({ contact_id: contactId, recipient }),
+    }),
+  draftsSeen: (id: number) => call<void>(`/api/v1/applications/${id}/drafts/seen`, { method: "POST" }),
 };

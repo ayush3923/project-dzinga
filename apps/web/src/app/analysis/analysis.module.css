@@ -143,3 +143,10 @@
 .sg .listTitle { margin-top: 0 !important; }
 
 .section > button { justify-self: start; }
+
+/* Cold email state on a tile: queued (neutral, waiting) or ready (new, to read). */
+.draftIcon { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 6px; border-radius: 50%; vertical-align: -4px; }
+.draftIcon[data-state="queued"] { background: var(--surface-2); color: var(--ink-3); border: 1px solid var(--line-strong); }
+.draftIcon[data-state="ready"] { background: var(--accent); color: var(--surface); }
+.queued { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--line); font-size: var(--text-md); color: var(--ink-2); }
+.queued strong { color: var(--ink); }

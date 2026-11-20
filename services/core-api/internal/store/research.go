@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -14,13 +15,14 @@ import (
 // saving the result marks the request done. The daily quiz lives in the quiz
 // service (ADR 0008).
 //
-// Targets are applications (job_posting, fit_score, interview_review). Interview
-// reviews are queued by saving a note (interview.go), not through RequestResearch.
+// Targets are applications (job_posting, fit_score, interview_review, outreach).
+// Interview reviews are queued by saving a note (interview.go) and cold emails by
+// RequestOutreach, not through RequestResearch.
 
 var ErrBadKind = errors.New("kind must be job_posting or fit_score")
 
 // appKinds are the request kinds whose target is an application.
-const appKinds = `('job_posting', 'fit_score', 'interview_review')`
+const appKinds = `('job_posting', 'fit_score', 'interview_review', 'outreach')`
 
 type ResearchRequest struct {
 	ID        int64     `json:"id"`
@@ -29,6 +31,9 @@ type ResearchRequest struct {
 	Name      string    `json:"name"`    // organization name, or "Company — Role"
 	JobURL    string    `json:"job_url"` // job_posting: the link already known, if any
 	CreatedAt time.Time `json:"created_at"`
+	// outreach: who the email is for, a contact on the application or as the user typed it.
+	ContactID *int64 `json:"contact_id,omitempty"`
+	Recipient string `json:"recipient,omitempty"`
 }
 
 // RequestResearch queues a request (once: a pending one is returned as is).
@@ -64,7 +69,7 @@ func (s *Store) RequestResearch(ctx context.Context, userID, kind string, target
 func (s *Store) PendingResearch(ctx context.Context, userID string) ([]ResearchRequest, error) {
 	out := []ResearchRequest{}
 	err := s.scanRows(ctx, `SELECT r.id, r.kind, r.target_id, r.created_at,
-			a.company || CASE WHEN a.role <> '' THEN ' — ' || a.role ELSE '' END, COALESCE(a.job_url, '')
+			a.company || CASE WHEN a.role <> '' THEN ' — ' || a.role ELSE '' END, COALESCE(a.job_url, ''), r.contact_id, r.recipient
 		FROM research_requests r
 		JOIN applications a ON a.id = r.target_id -- not for a since-merged application
 		WHERE r.user_id = ? AND r.status = 'pending' AND r.kind IN `+appKinds+`
@@ -72,8 +77,12 @@ func (s *Store) PendingResearch(ctx context.Context, userID string) ([]ResearchR
 		func(rows *sql.Rows) error {
 			var r ResearchRequest
 			var created string
-			if err := rows.Scan(&r.ID, &r.Kind, &r.TargetID, &created, &r.Name, &r.JobURL); err != nil {
+			var cid sql.NullInt64
+			if err := rows.Scan(&r.ID, &r.Kind, &r.TargetID, &created, &r.Name, &r.JobURL, &cid, &r.Recipient); err != nil {
 				return err
+			}
+			if cid.Valid {
+				r.ContactID = &cid.Int64
 			}
 			r.CreatedAt, _ = time.Parse(time.RFC3339, created)
 			out = append(out, r)
@@ -153,4 +162,82 @@ func markResearchDone(ctx context.Context, tx *sql.Tx, userID, kind string, targ
 	_, err := tx.ExecContext(ctx, `UPDATE research_requests SET status = 'done', done_at = ? WHERE user_id = ? AND kind = ? AND target_id = ? AND status = 'pending'`,
 		now.UTC().Format(time.RFC3339), userID, kind, targetID)
 	return err
+}
+
+// RequestOutreach queues a cold email for Claude, for a contact on the application
+// or a recipient the user typed ("Priya, HR"). Asking again while one is pending
+// updates who it's for.
+func (s *Store) RequestOutreach(ctx context.Context, userID string, appID int64, contactID *int64, recipient string, now time.Time) (time.Time, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer tx.Rollback()
+	if err := ownsApp(ctx, tx, userID, appID); err != nil {
+		return time.Time{}, err
+	}
+	var cid any
+	if contactID != nil {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM contacts WHERE id = ? AND user_id = ? AND application_id = ?`,
+			*contactID, userID, appID).Scan(&n); err != nil {
+			return time.Time{}, err
+		}
+		if n == 0 {
+			return time.Time{}, ErrBadContact
+		}
+		cid = *contactID
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO research_requests (user_id, kind, target_id, created_at, contact_id, recipient)
+		VALUES (?, 'outreach', ?, ?, ?, ?)
+		ON CONFLICT (user_id, kind, target_id) WHERE status = 'pending'
+		DO UPDATE SET contact_id = excluded.contact_id, recipient = excluded.recipient`,
+		userID, appID, now.UTC().Format(time.RFC3339), cid, truncate(strings.TrimSpace(recipient), 120)); err != nil {
+		return time.Time{}, err
+	}
+	var created string
+	if err := tx.QueryRowContext(ctx, `SELECT created_at FROM research_requests WHERE user_id = ? AND kind = 'outreach' AND target_id = ? AND status = 'pending'`,
+		userID, appID).Scan(&created); err != nil {
+		return time.Time{}, err
+	}
+	at, _ := time.Parse(time.RFC3339, created)
+	return at, tx.Commit()
+}
+
+// MarkDraftsSeen clears an application's "new draft" flag (the user opened it).
+func (s *Store) MarkDraftsSeen(ctx context.Context, userID string, appID int64, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE outreach_drafts SET seen_at = ? WHERE user_id = ? AND application_id = ? AND seen_at IS NULL`,
+		now.UTC().Format(time.RFC3339), userID, appID)
+	return err
+}
+
+// draftStates says, per application, where its cold email stands: queued (a request
+// is pending), ready (a draft not opened yet) or drafted (opened). Absent: none.
+func (s *Store) draftStates(ctx context.Context, userID string) (map[int64]string, error) {
+	out := map[int64]string{}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT application_id, CASE WHEN SUM(seen_at IS NULL) > 0 THEN 'ready' ELSE 'drafted' END
+		FROM outreach_drafts WHERE user_id = ? GROUP BY application_id
+		UNION ALL
+		SELECT target_id, 'queued' FROM research_requests WHERE user_id = ? AND kind = 'outreach' AND status = 'pending'`, userID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var st string
+		if err := rows.Scan(&id, &st); err != nil {
+			return nil, err
+		}
+		// A pending request shows as queued; otherwise an unopened draft as ready.
+		switch {
+		case st == "queued":
+			out[id] = st
+		case out[id] == "queued":
+		case st == "ready" || out[id] == "":
+			out[id] = st
+		}
+	}
+	return out, rows.Err()
 }

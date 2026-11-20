@@ -24,6 +24,7 @@ export default function ProfilePage() {
 }
 
 async function Loaded() {
+  await connection(); // the current role's duration runs to today: render per request, before any fetch
   let profile: Profile;
   let boxes: { mailboxes: Mailbox[]; settings: SyncSettings };
   // The quiz service is optional here: the profile still loads without it.
@@ -36,7 +37,6 @@ async function Loaded() {
   } catch {
     return <Offline />;
   }
-  await connection(); // the current role's duration runs to today, so render per request
   const now = new Date();
   return (
     <>

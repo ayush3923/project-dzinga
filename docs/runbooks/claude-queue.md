@@ -19,27 +19,36 @@ runbook; the owner can also ask Claude to "do the pending Dzinga work".
 scripts/dz-up.sh
 ```
 
-## 1. Refresh
+## 1. Today's run
+
+The startoff service runs the day at 07:00 on its own (ADR 0011). Check what it did:
 
 ```bash
-scripts/dzq.sh POST sync
+scripts/dzq.sh GET "startoff/api/v1/runs?limit=1"
 ```
 
-Then run `scripts/dzq.sh GET sync` every few seconds until `"running":false`. The refresh
-queues an Opus fit score for each new open application (core-api), asks the quiz
-service for today's quiz (ADR 0008) and queues diagnoses for 5 organizations picked at
-random, topping up to 5 pending (organizations service).
+If there is no run for today, or you're asked to refresh, start one:
+
+```bash
+scripts/dzq.sh POST startoff/internal/v1/runs
+```
+
+Then run `scripts/dzq.sh GET "startoff/api/v1/runs?limit=1"` every few seconds until its
+`status` isn't `running`. A run refreshes every mailbox (which queues an Opus fit score
+for each new open application in core-api), asks the quiz service for today's quiz (ADR
+0008) and tops Claude's queue up to 5 organization diagnoses picked at random. A step
+marked `failed` (for example a mailbox that couldn't log in) goes in your report.
 
 ## 2. Read the queue
 
 ```bash
 scripts/dzq.sh GET /internal/v1/research-requests
-scripts/dzq.sh GET orgs/internal/v1/research-requests
+scripts/dzq.sh GET startoff/internal/v1/research-requests
 scripts/dzq.sh GET quiz/internal/v1/pending
 ```
 
 The first is core-api's queue (`fit_score`, `job_posting`, `interview_review`); work it
-oldest first. The second is the organizations service's (`company_profile` and `diagnosis`, ADR 0010).
+oldest first. The second is the startoff service's (`company_profile` and `diagnosis`, ADR 0011).
 The third is the quiz service's: `quizzes`
 (days to build), `news` (days whose key news is missing), `prep` (today, when its bonus
 prep questions are missing) and `feedback` (answers awaiting feedback). Saving a result marks
@@ -96,7 +105,8 @@ Research first, then write.
 Then write 7 questions and save with `scripts/dzq.sh PUT quiz/internal/v1/quizzes <file>`:
 
 - 5 `mcq`: 2 `ai_news`, 1 `pm_concept`, 2 `org_news`. 4 options each, one correct
-  (`answer` is its index), plausible distractors, a 1–2 sentence `explanation`, and
+  (`answer` is its index; put it in a different position across the day's questions,
+  never always first), plausible distractors of similar length and detail, a 1–2 sentence `explanation`, and
   `source_title` and `source_url` (https) for news questions.
 - 1 `subjective` (`pm_concept`): a short case applying a concept to one of the 4 companies.
 - 1 `voice` (`org_news` or `ai_news`): something to say out loud in 1–2 minutes, like an
@@ -124,15 +134,15 @@ Save the most useful items you read as the day's key news for the profile page, 
 
 ### Organization briefings (same run, one per chosen company)
 
-For each of the 4 companies, save what you learned on its organization in the
-organizations service, so the organization drawer shows it and the list flags it until it
-is opened. Find the organization's id with
+For each of the 4 companies, save what you learned on its organization in the startoff
+service, so the organization drawer shows it and the list flags it until it is opened.
+Find the organization's id with
 `scripts/dzq.sh GET "orgs/api/v1/organizations/lookup?company=<name>"`, then
-`scripts/dzq.sh PUT orgs/internal/v1/organizations/{id}/briefing <file>`:
+`scripts/dzq.sh PUT startoff/internal/v1/organizations/{id}/briefing <file>`:
 
 - `news`: that company's items from today (≤ 5), with `day` (the quiz day), `title`,
   `summary`, `source_title`, the https `url` and `published_on` when known. A link saved
-  before is kept as it was; each organization keeps its 10 newest items.
+  before is kept as it was. Every item is kept; the drawer shows the 10 newest.
 - `ceo` and `cpo` (the chief product officer, or the nearest product head with their
   title, e.g. "Jane Doe (SVP Product)"), with `leaders_url` (the page you confirmed them
   on). Leave a name blank rather than guess.
@@ -144,7 +154,8 @@ is opened. Find the organization's id with
   find a primary or reputable source.
 - `model`: `claude-opus-5-5`.
 
-Each save replaces the facts, so send the current CEO, CPO and figures every time.
+Send the current CEO, CPO and figures every time: they become the current facts, and a
+change is kept as a new row (unchanged facts add nothing).
 
 ### Bonus prep questions (same run, `prep` in pending)
 
@@ -186,33 +197,51 @@ read on their chances.
 
 ## 6. Feedback on a written or spoken answer (quiz service, `feedback` in pending)
 
+Judge against a principal product manager bar: substance (does it answer the exact
+question, with a clear structure, evidence and numbers), flow, clarity and the terms used.
+For spoken answers also judge delivery: hedges and filler phrases, restarts, long pauses
+(whisper's segment timings show them) and length. whisper's base model drops "um" and
+"uh" and mishears some names, so say so when it matters.
+
 1. `scripts/dzq.sh GET quiz/internal/v1/questions/{question_id}` gives the question, the
-   answer and, for a spoken answer, `audio_path`.
+   answer, for a spoken answer `audio_path`, and `open_drills`: what earlier feedback asked
+   the user to do next time, for this kind of answer.
 2. Spoken answers: transcribe on this Mac only, with whisper.cpp:
    `whisper-cli -m ~/.dzinga/whisper/ggml-base.en.bin -f <audio> -otxt -of <scratch file>`
    (convert to 16 kHz WAV first with `ffmpeg -i <audio> -ar 16000 -ac 1 <file>.wav`). If
    whisper.cpp isn't installed, leave the request pending and say so in your report.
    Never upload a recording anywhere.
-3. Save with `scripts/dzq.sh PUT quiz/internal/v1/questions/{id}/feedback <file>`: `transcript` (spoken only),
-   `feedback` (what was strong, what to add or cut, one better phrasing; under 120 words)
-   and `score` (0–10).
+3. Check each open drill against this answer: `met` (clearly done), `partly` or `missed`,
+   with a one-line `note` quoting or pointing to the evidence. Count it in the score.
+4. Save with `scripts/dzq.sh PUT quiz/internal/v1/questions/{id}/feedback <file>`:
+   - `transcript` (spoken only), `feedback` (what was strong, what to add or cut, one
+     better phrasing; under 120 words) and `score` (0–10);
+   - `checks`: one per open drill, `{"drill_id", "result", "note"}`;
+   - `drills`: up to 4 specific things to do next time, `{"kind", "text"}` with `kind`
+     `subjective`, `voice` or `any` (both). Make each one observable in a single answer
+     ("one north-star metric, not four"; "no 'I believe'"), not a general aim. Carry a
+     `missed` or `partly` drill forward as a new drill when it still matters.
+   The Preparation page shows open drills at the top, and how well they're followed is
+   part of the readiness index's quiz third.
 
 ## 7. `job_posting` and `company_profile`
 
 - `job_posting`: step 3, parts 1–4 (find and save the posting only).
-- `company_profile` (organizations service): research the organization and save with
-  `scripts/dzq.sh PUT orgs/internal/v1/organizations/{id}/profile <file>` (shape in
-  `api/orgs.yaml`). The organization's applications are in
-  `GET orgs/api/v1/organizations/{id}`.
+- `company_profile` (startoff service): research the organization and save with
+  `scripts/dzq.sh PUT startoff/internal/v1/organizations/{id}/profile <file>` (shape in
+  `api/startoff.yaml`). Each save is a new version; earlier ones are kept. The
+  organization's applications are in `GET orgs/api/v1/organizations/{id}`, and its
+  earlier research in `GET startoff/api/v1/organizations/{id}`.
 
 ## 8. `diagnosis`: why an organization is or isn't moving
 
-Each refresh tops the queue up to 5 organizations picked at random; the user can also ask for one.
+Each daily run tops the queue up to 5 organizations picked at random; the user can also ask for one.
 
 1. `scripts/dzq.sh GET orgs/api/v1/organizations/{id}`: every application to it
    (`application_history`: roles, stages, timeline, days to outcome), the counts
-   (`responded`, `rejected`, `avg_response_days`), `diagnosis_reason` when the list
-   flagged it, and any earlier diagnosis. For each application, read its fit score and
+   (`responded`, `rejected`, `avg_response_days`) and `diagnosis_reason` when the list
+   flagged it. `scripts/dzq.sh GET startoff/api/v1/organizations/{id}`: the earlier
+   diagnoses (say what changed since the last one), the profile and quiz facts. For each application, read its fit score and
    posting (`GET /api/v1/applications/{id}/detail`) and the profile.
 2. Work out what's going on from that evidence only. Things to weigh:
    - **Timing**: days since applying against this company's own reply speed (and the
@@ -223,7 +252,7 @@ Each refresh tops the queue up to 5 organizations picked at random; the user can
    - **Pattern**: rejections at the same stage, fast automated rejections (screening
      criteria), or progress (shortlisted, interviews) worth building on.
    - **Route**: applied cold with no referral or contact.
-3. Save with `scripts/dzq.sh POST orgs/internal/v1/organizations/{id}/diagnosis <file>`:
+3. Save with `scripts/dzq.sh POST startoff/internal/v1/organizations/{id}/diagnosis <file>`:
    a `summary` (2–3 plain sentences: the read and the main reason), up to 5 `causes`
    (each with `confidence` `high`, `medium` or `low`, most likely first), up to 4
    `actions` (specific next steps: who to contact, what to change, when to follow up or
@@ -236,6 +265,19 @@ Each refresh tops the queue up to 5 organizations picked at random; the user can
 {"summary": "…", "model": "claude-opus-5-5",
  "causes": [{"text": "…", "confidence": "medium"}], "actions": ["…"]}
 ```
+
+## 8b. `outreach`: a cold email (core-api queue)
+
+The user pressed "Draft cold email" in Analysis. The request has `contact_id` (a contact
+on the application) or `recipient` (who it's for, as typed). Read the application, its
+posting and fit, and the profile. Write under 100 words, to be read and answered: a
+specific subject (role and requisition id), one line on why you're writing, one proof
+point with a number, one line on the value to them, and one easy question. No flattery,
+no attachments, no claims the profile doesn't support. Use `[Name]` when the name isn't
+known. Save with `scripts/dzq.sh POST /internal/v1/applications/{id}/outreach <file>`:
+`subject`, `body`, `recipient` (or `contact_id`), `model`; optional `product_analysis`,
+`experience_points`, `value_adds`, `improvement_ideas`. Saving completes the request and
+shows a "ready" icon on the application's tile until the user opens it.
 
 ## 9. Report
 

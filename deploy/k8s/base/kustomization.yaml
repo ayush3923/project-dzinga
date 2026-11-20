@@ -12,4 +12,5 @@ resources:
   - ingest.yaml
   - quiz.yaml
   - orgs.yaml
+  - startoff.yaml
   - web.yaml

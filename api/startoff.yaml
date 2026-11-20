@@ -1,0 +1,86 @@
+openapi: 3.1.0
+info:
+  title: Dzinga startoff service
+  version: 1.0.0
+  description: >
+    The daily jobs and company research (ADR 0011). A run at 07:00 local time (or on
+    request) refreshes every mailbox through the sync service, asks the quiz service for
+    the day's quiz and tops up Claude's queue to 5 organization diagnoses picked at random.
+    Company research is kept with its history: every profile version, every change of
+    quiz facts, every quiz news item and every diagnosis. Organizations are the
+    organizations service's ids; saves and requests check the id with it (404 when
+    unknown, 502 when it is unreachable). /api routes are called by the web app's server;
+    /internal routes need the internal token.
+servers:
+  - url: http://127.0.0.1:8086
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+  /api/v1/organizations/flags:
+    get:
+      summary: For every organization with research - organization_id, has_profile, has_diagnosis, briefing_unseen (quiz facts or news since last opened), diagnosis_unseen
+  /api/v1/organizations/{id}:
+    get:
+      summary: >
+        One organization's research - the flags; profile (newest) and profile_versions;
+        briefing (newest facts with the 10 newest quiz news items) and news_count; diagnosis
+        (newest) and earlier_diagnoses (up to 10); research_requested_at and
+        diagnosis_requested_at. Empty, not 404, when there is none.
+  /api/v1/organizations/{id}/history:
+    get:
+      summary: Everything kept, newest first - profiles (every version), facts (every change), news (all quiz news), diagnoses
+  /api/v1/organizations/{id}/research:
+    post:
+      summary: Queue a company profile for Claude
+      responses:
+        "202": { description: Queued; returns research_requested_at }
+  /api/v1/organizations/{id}/diagnosis-request:
+    post:
+      summary: Queue a diagnosis for Claude
+      responses:
+        "202": { description: Queued; returns diagnosis_requested_at }
+  /api/v1/organizations/{id}/seen:
+    post:
+      summary: Clear the organization's flags (the drawer was opened)
+  /api/v1/runs:
+    get:
+      summary: Recent daily runs, newest first (?limit=1-100, default 10) - day, trigger (timer, manual, claude), status (running, done, partial), steps (refresh, quiz, diagnoses; done or failed, with detail)
+    post:
+      summary: Start today's run now (the Refresh button). The mail refresh starts before the answer.
+      responses:
+        "202": { description: Started; returns the run }
+        "200": { description: A run is already in progress; returns it }
+  /internal/v1/runs:
+    post:
+      summary: Start today's run now (Claude's scheduled task)
+      security: [{ internalToken: [] }]
+  /internal/v1/research-requests:
+    get:
+      summary: Pending requests, oldest first - kind company_profile or diagnosis, target_id (organization), name
+      security: [{ internalToken: [] }]
+  /internal/v1/organizations/{id}/profile:
+    put:
+      summary: Save a company profile as a new version (overview, interview_angle, news ≤ 5, products, leaders, ratings ≤ 2; https links); completes a queued profile
+      security: [{ internalToken: [] }]
+  /internal/v1/organizations/{id}/briefing:
+    put:
+      summary: >
+        Save what the daily quiz found - CEO, CPO, last year's and last quarter's revenue
+        (value, period, https source) and up to 5 news items. Facts get a new row only when
+        they change; news is added (a link already saved is kept). Flags the organization
+        until opened.
+      security: [{ internalToken: [] }]
+      responses:
+        "204": { description: Saved }
+        "400": { description: Invalid briefing }
+        "404": { description: No such organization }
+  /internal/v1/organizations/{id}/diagnosis:
+    post:
+      summary: Save a diagnosis (summary, causes with confidence, actions); completes a queued diagnosis and flags the organization until opened
+      security: [{ internalToken: [] }]
+components:
+  securitySchemes:
+    internalToken:
+      type: http
+      scheme: bearer

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // The morning digest: what the last refresh brought in, computed with plain
@@ -381,7 +382,7 @@ func DigestTemplate(d Digest) string {
 			if i == 2 {
 				break
 			}
-			steps = append(steps, fmt.Sprintf("%s for %s", strings.ToLower(s.Title), s.Company))
+			steps = append(steps, fmt.Sprintf("%s for %s", lowerFirst(s.Title), s.Company))
 		}
 		parts = append(parts, "Next: "+strings.Join(steps, "; ")+".")
 	}
@@ -394,4 +395,16 @@ func limitWords(s string, n int) string {
 		return s
 	}
 	return strings.TrimRight(strings.Join(w[:n], " "), ",;:") + "…"
+}
+
+// lowerFirst lowercases a title's first letter to continue a sentence ("Round 2
+// (TP2) interview, Fri 20 Nov" → "round 2 (TP2) interview, Fri 20 Nov"). Names,
+// days, months and acronyms keep their capitals; so does a leading acronym.
+func lowerFirst(s string) string {
+	r := []rune(s)
+	if len(r) == 0 || (len(r) > 1 && unicode.IsUpper(r[1])) {
+		return s
+	}
+	r[0] = unicode.ToLower(r[0])
+	return string(r)
 }

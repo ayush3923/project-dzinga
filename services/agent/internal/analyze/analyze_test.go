@@ -136,7 +136,7 @@ func agent(c *fakeCore, m *fakeModel) *Agent {
 
 func agentWithFetcher(c *fakeCore, m *fakeModel, f *fetcher) (*Agent, *fetcher) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return &Agent{Core: c, Orgs: c, Router: &router.Router{LLM: m, Routes: router.Default, Log: log}, Log: log, Fetch: f.fetch}, f
+	return &Agent{Core: c, Orgs: c, Research: c, Router: &router.Router{LLM: m, Routes: router.Default, Log: log}, Log: log, Fetch: f.fetch}, f
 }
 
 func withProfile() core.Profile {

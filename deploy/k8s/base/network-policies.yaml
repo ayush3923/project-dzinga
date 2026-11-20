@@ -15,7 +15,7 @@ metadata:
 spec:
   podSelector:
     matchExpressions:
-      - { key: app, operator: In, values: [web, ingest, agent, orgs] }
+      - { key: app, operator: In, values: [web, ingest, agent, orgs, startoff] }
   policyTypes: [Egress]
   egress:
     - to:
@@ -45,7 +45,7 @@ spec:
         - { protocol: TCP, port: 8091 }
 ---
 # The quiz service (ADR 0008) needs no egress. Its /api routes have no authentication
-# yet, like core-api's, so only web and ingest may reach it.
+# yet, like core-api's, so only web and startoff (the daily run, ADR 0011) may reach it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -58,11 +58,11 @@ spec:
     - from:
         - podSelector:
             matchExpressions:
-              - { key: app, operator: In, values: [web, ingest] }
+              - { key: app, operator: In, values: [web, startoff] }
       ports:
         - { protocol: TCP, port: 8084 }
 ---
-# The organizations service (ADR 0010): web and agent call it; it calls only core-api.
+# The organizations service (ADR 0010): web, agent and startoff call it; it calls only core-api.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -75,7 +75,7 @@ spec:
     - from:
         - podSelector:
             matchExpressions:
-              - { key: app, operator: In, values: [web, ingest, agent] }
+              - { key: app, operator: In, values: [web, agent, startoff] }
       ports:
         - { protocol: TCP, port: 8085 }
   egress:
@@ -115,6 +115,11 @@ spec:
       ports:
         - { protocol: TCP, port: 8085 }
     - to:
+        - podSelector:
+            matchLabels: { app: startoff }
+      ports:
+        - { protocol: TCP, port: 8086 }
+    - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 127.0.0.0/8]
@@ -133,7 +138,8 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels: { app: web }
+            matchExpressions:
+              - { key: app, operator: In, values: [web, startoff] }
       ports:
         - { protocol: TCP, port: 8083 }
   egress:
@@ -147,16 +153,6 @@ spec:
             matchLabels: { app: agent }
       ports:
         - { protocol: TCP, port: 8082 }
-    - to:
-        - podSelector:
-            matchLabels: { app: quiz }
-      ports:
-        - { protocol: TCP, port: 8084 }
-    - to:
-        - podSelector:
-            matchLabels: { app: orgs }
-      ports:
-        - { protocol: TCP, port: 8085 }
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -191,6 +187,45 @@ spec:
             matchLabels: { app: agent }
       ports:
         - { protocol: TCP, port: 8082 }
+    - to:
+        - podSelector:
+            matchLabels: { app: quiz }
+      ports:
+        - { protocol: TCP, port: 8084 }
+    - to:
+        - podSelector:
+            matchLabels: { app: orgs }
+      ports:
+        - { protocol: TCP, port: 8085 }
+    - to:
+        - podSelector:
+            matchLabels: { app: startoff }
+      ports:
+        - { protocol: TCP, port: 8086 }
+---
+# The startoff service (ADR 0011): web and agent call it; its daily run calls the
+# sync, quiz and organizations services. Nothing it calls calls it back.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: startoff
+spec:
+  podSelector:
+    matchLabels: { app: startoff }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [web, agent] }
+      ports:
+        - { protocol: TCP, port: 8086 }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app: ingest }
+      ports:
+        - { protocol: TCP, port: 8083 }
     - to:
         - podSelector:
             matchLabels: { app: quiz }

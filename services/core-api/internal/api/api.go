@@ -43,6 +43,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/applications/{id}/research", s.requestResearch("job_posting"))
 	mux.Handle("GET /internal/v1/research-requests", s.requireInternal(http.HandlerFunc(s.pendingResearch)))
 	mux.HandleFunc("POST /api/v1/applications/{id}/fit-request", s.requestResearch("fit_score"))
+	mux.HandleFunc("POST /api/v1/applications/{id}/outreach-request", s.requestOutreach)
+	mux.HandleFunc("POST /api/v1/applications/{id}/drafts/seen", s.draftsSeen)
 	mux.HandleFunc("POST /api/v1/applications/{id}/interview-notes", s.postInterviewNote)
 	mux.Handle("POST /internal/v1/applications/{id}/interview-review", s.requireInternal(http.HandlerFunc(s.postInterviewReview)))
 	mux.HandleFunc("GET /api/v1/mailboxes", s.mailboxes)
@@ -387,6 +389,42 @@ func (s *Server) postFit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeResult(w, r, s.Store.SaveFit(r.Context(), s.UserID, id, f, s.Now()), http.StatusNoContent, nil)
+}
+
+// requestOutreach queues a cold email for Claude: for a contact on the application
+// or a recipient the user typed. Claude drafts it on its next run.
+func (s *Server) requestOutreach(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var body struct {
+		ContactID *int64 `json:"contact_id"`
+		Recipient string `json:"recipient"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if len([]rune(body.Recipient)) > 120 {
+		writeErr(w, http.StatusBadRequest, "recipient is at most 120 characters")
+		return
+	}
+	at, err := s.Store.RequestOutreach(r.Context(), s.UserID, id, body.ContactID, body.Recipient, s.Now())
+	if errors.Is(err, store.ErrBadContact) {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeResult(w, r, err, http.StatusAccepted, map[string]any{"outreach_requested_at": at})
+}
+
+func (s *Server) draftsSeen(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	s.writeResult(w, r, s.Store.MarkDraftsSeen(r.Context(), s.UserID, id, s.Now()), http.StatusNoContent, nil)
 }
 
 func (s *Server) postOutreach(w http.ResponseWriter, r *http.Request) {

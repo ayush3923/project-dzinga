@@ -70,16 +70,29 @@ export async function runFitAction(id: number): Promise<{ error?: string }> {
 }
 
 /** Drafts a cold email on request. Nothing is sent. */
-export async function draftEmailAction(id: number, contactId: number | null): Promise<{ error?: string }> {
+/** Queues a cold email for Claude, for a contact or a recipient the user typed. */
+export async function draftEmailAction(id: number, contactId: number | null, recipient: string): Promise<{ error?: string }> {
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid application." };
   if (contactId !== null && (!Number.isInteger(contactId) || contactId <= 0)) return { error: "Invalid contact." };
+  const who = typeof recipient === "string" ? recipient.trim().slice(0, 120) : "";
   try {
-    await api.runOutreach(id, contactId);
+    await api.requestOutreach(id, contactId, who);
   } catch (e) {
-    return { error: message(e, "Drafting failed.") };
+    return { error: message(e, "Couldn’t queue the email.") };
   }
   refresh();
   return {};
+}
+
+/** Opening a new draft clears its tile's "ready" icon. */
+export async function draftsSeenAction(id: unknown): Promise<void> {
+  if (!validId(id)) return;
+  try {
+    await api.draftsSeen(id);
+  } catch {
+    return; // the icon simply stays until next time
+  }
+  refresh();
 }
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -187,7 +200,9 @@ export async function syncStatusAction(): Promise<SyncSummary> {
 export async function startSyncAction(ids: unknown): Promise<{ error?: string }> {
   const list = (Array.isArray(ids) ? ids : []).filter(validId).slice(0, 20);
   try {
-    await api.startSync(list);
+    // Every mailbox: the day's run (startoff), which also requests the quiz and queues diagnoses.
+    if (list.length === 0) await api.startRun();
+    else await api.startSync(list);
   } catch (e) {
     return { error: message(e, "Couldn’t start the sync.") };
   }

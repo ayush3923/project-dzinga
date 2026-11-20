@@ -1,6 +1,7 @@
 // The organizations service: every company the user has applied to or prefers,
-// with company profiles, diagnoses and briefings from the daily quiz (ADR 0010).
-// Applications stay in core-api; this service reads them to group by company.
+// with statistics and the preferred list (ADR 0010). Applications stay in core-api;
+// this service reads them to group by company. Company research is the startoff
+// service's (ADR 0011).
 package main
 
 import (

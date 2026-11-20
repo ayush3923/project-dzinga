@@ -42,11 +42,12 @@ func main() {
 		os.Exit(1)
 	}
 	a := &analyze.Agent{
-		Core:   core.New(env("DZ_CORE_URL", "http://127.0.0.1:8081"), token),
-		Orgs:   core.New(env("DZ_ORGS_URL", "http://127.0.0.1:8085"), token),
-		Router: &router.Router{LLM: llm.NewClaude(key), Routes: routes, Log: log},
-		Log:    log,
-		Fetch:  analyze.NewFetch(),
+		Core:     core.New(env("DZ_CORE_URL", "http://127.0.0.1:8081"), token),
+		Orgs:     core.New(env("DZ_ORGS_URL", "http://127.0.0.1:8085"), token),
+		Research: core.New(env("DZ_STARTOFF_URL", "http://127.0.0.1:8086"), token),
+		Router:   &router.Router{LLM: llm.NewClaude(key), Routes: routes, Log: log},
+		Log:      log,
+		Fetch:    analyze.NewFetch(),
 	}
 	srv := &http.Server{
 		Addr:              env("DZ_AGENT_ADDR", "127.0.0.1:8082"), // loopback only

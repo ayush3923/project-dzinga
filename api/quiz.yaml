@@ -40,7 +40,10 @@ paths:
       summary: Play back the saved recording
   /api/v1/stats:
     get:
-      summary: Quiz performance for the profile page (accuracy all-time and last 7 days, streak, written and spoken averages, last 14 quizzes)
+      summary: Quiz performance (accuracy all-time and last 7 days, streak, written and spoken averages, last 14 quizzes; drills_open, drills_checked_7d and follow_through_7d - how well improvement drills were followed, met = 1, partly = ½, 0-100)
+  /api/v1/drills:
+    get:
+      summary: Improvement drills for the Preparation page - open (oldest first) and recent (checked in the last 14 days, newest first); each with kind (subjective, voice, any), text, status (open, met, partly, missed), check_note
   /api/v1/news:
     get:
       summary: The latest day's key news, gathered with the quiz
@@ -53,7 +56,7 @@ paths:
         "400": { description: Invalid items }
   /api/v1/prep:
     get:
-      summary: Today's three bonus prep questions for the Today page, or the newest earlier day's
+      summary: Today's three bonus prep questions for the Preparation page, or the newest earlier day's
   /internal/v1/prep:
     put:
       summary: Replace a day's bonus prep questions (exactly 3, each with company, role, question, why and approach)
@@ -81,11 +84,15 @@ paths:
         "409": { description: Already answered }
   /internal/v1/questions/{id}:
     get:
-      summary: A question with its answer and the recording's local path
+      summary: A question with its answer, the recording's local path and open_drills (open drills from earlier days that apply to this kind of answer)
       security: [{ internalToken: [] }]
   /internal/v1/questions/{id}/feedback:
     put:
-      summary: Save feedback (transcript, feedback, score 0-10) on a written or spoken answer
+      summary: >
+        Save feedback (transcript, feedback, score 0-10) on a written or spoken answer, with
+        drills (up to 4 things to do next time - kind subjective, voice or any; text 10-300
+        characters; replaces this answer's earlier open drills) and checks (drill_id, result
+        met, partly or missed, note) of open drills from earlier days that match this kind
       security: [{ internalToken: [] }]
 components:
   securitySchemes:

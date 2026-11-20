@@ -50,7 +50,7 @@ func TestImportFromCore(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
-	// Ids, preferences, profiles, briefings and pending company research all carried over.
+	// Ids and preferences carried over; research is the startoff service's (ADR 0011).
 	apps := []App{{ID: 1, Company: "ACME", Stage: "applied", Open: true}}
 	rep, err := s.Organizations(ctx, "owner", apps, time.Now())
 	if err != nil || rep.PreferredMode != "manual" || len(rep.Preferred) != 1 || rep.Preferred[0].ID != 9 {
@@ -59,15 +59,8 @@ func TestImportFromCore(t *testing.T) {
 	if id, _ := s.OrgID(ctx, "owner", "Acme"); id != 7 {
 		t.Errorf("acme id %d", id)
 	}
-	d, err := s.Organization(ctx, "owner", 7, apps, time.Now())
-	if err != nil || d.Profile == nil || len(d.Profile.News) != 1 || len(d.History) != 1 {
+	if d, err := s.Organization(ctx, "owner", 7, apps, time.Now()); err != nil || len(d.History) != 1 {
 		t.Errorf("acme detail: %+v err=%v", d, err)
-	}
-	if d, _ := s.Organization(ctx, "owner", 9, apps, time.Now()); d.Briefing == nil || d.Briefing.CEO != "Jane Doe" || d.ResearchRequestedAt == nil {
-		t.Errorf("beta detail: %+v", d)
-	}
-	if q, _ := s.PendingResearch(ctx, "owner"); len(q) != 1 || q[0].TargetID != 9 {
-		t.Errorf("queue: %+v", q)
 	}
 	// Only once.
 	if _, err := s.ImportFromCore(ctx, src); err == nil {

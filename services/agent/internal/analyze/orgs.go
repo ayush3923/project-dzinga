@@ -147,5 +147,5 @@ func (a *Agent) Diagnose(ctx context.Context, orgID int64) (core.Diagnosis, erro
 	} else {
 		a.Log.Warn("diagnosis_summary_fallback", "organization_id", orgID, "reason", fmt.Sprint(err))
 	}
-	return d, a.Orgs.SaveDiagnosis(ctx, orgID, d)
+	return d, a.Research.SaveDiagnosis(ctx, orgID, d)
 }
