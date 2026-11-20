@@ -133,13 +133,13 @@ func TestQuizFlow(t *testing.T) {
 		t.Fatalf("pending feedback: %+v", p)
 	}
 
-	if err := s.SaveFeedback(ctx, "u", sub, "", "Good anchor on savings; add a usage tier.", 7, now); err != nil {
+	if err := s.SaveFeedback(ctx, "u", sub, "", "Good anchor on savings; add a usage tier.", 7, nil, nil, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveFeedback(ctx, "u", mcq, "", "x", 5, now); err != ErrBadAnswer {
+	if err := s.SaveFeedback(ctx, "u", mcq, "", "x", 5, nil, nil, now); err != ErrBadAnswer {
 		t.Errorf("feedback on an MCQ: %v", err)
 	}
-	if err := s.SaveFeedback(ctx, "u", voice, "transcript", "fine", 11, now); err == nil {
+	if err := s.SaveFeedback(ctx, "u", voice, "transcript", "fine", 11, nil, nil, now); err == nil {
 		t.Error("score 11 accepted")
 	}
 	if _, err := s.AnswerQuestion(ctx, "u", sub, nil, "Changed my mind", "", now); err != ErrAnswered {

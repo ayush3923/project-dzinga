@@ -8,7 +8,7 @@ type Key = "applications" | "rejections" | "waiting";
 const NAMES: Record<Key, string> = { applications: "Applied", rejections: "Rejected", waiting: "Waiting" };
 
 const PAD = { top: 10, right: 74, bottom: 22, left: 26 };
-const H = 116;
+const BASE_H = 116; // each panel's height; taller when filling its container
 
 function niceMax(v: number) {
   if (v <= 4) return 4;
@@ -26,9 +26,10 @@ function dayLabel(date: string, short = true) {
  * and the stock of applications still waiting for a reply. They have different
  * scales, so they never share a y-axis. Hovering a day shows all three values.
  */
-export function TrendChart({ series }: { series: DayPoint[] }) {
+export function TrendChart({ series, fill }: { series: DayPoint[]; fill?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(360);
+  const [H, setH] = useState(BASE_H);
   const [hover, setHover] = useState<number | null>(null);
 
   useEffect(() => {
@@ -38,6 +39,23 @@ export function TrendChart({ series }: { series: DayPoint[] }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // With fill, the two panels share whatever height the container has (it is
+  // stretched to the column beside it); everything else keeps its natural size.
+  useEffect(() => {
+    const el = ref.current;
+    const box = el?.parentElement;
+    if (!fill || !el || !box) return;
+    const fit = () => {
+      const svgs = el.querySelectorAll("svg");
+      const charts = Array.from(svgs).reduce((n, s) => n + s.getBoundingClientRect().height, 0);
+      const other = el.scrollHeight - charts;
+      setH(Math.max(BASE_H, Math.floor((box.clientHeight - other) / 2)));
+    };
+    const ro = new ResizeObserver(fit);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [fill]);
 
   const n = series.length;
   const innerW = w - PAD.left - PAD.right;
@@ -50,11 +68,11 @@ export function TrendChart({ series }: { series: DayPoint[] }) {
     const last = series[n - 1];
     // End labels: nudge apart only when the two would collide.
     const ends = keys.map((k) => ({ k, y: y(last[k]) }));
-    if (ends.length === 2 && Math.abs(ends[0].y - ends[1].y) < 15) {
-      const mid = Math.min((ends[0].y + ends[1].y) / 2, H - PAD.bottom - 8); // keep clear of the day labels
+    if (ends.length === 2 && Math.abs(ends[0].y - ends[1].y) < 18) {
+      const mid = Math.min((ends[0].y + ends[1].y) / 2, H - PAD.bottom - 12); // keep clear of the day labels
       const up = ends[0].y <= ends[1].y ? 0 : 1;
-      ends[up].y = mid - 8;
-      ends[1 - up].y = mid + 8;
+      ends[up].y = mid - 9;
+      ends[1 - up].y = mid + 9;
     }
     return (
       <figure className={styles.panel}>
@@ -96,14 +114,14 @@ export function TrendChart({ series }: { series: DayPoint[] }) {
               fill="transparent" onMouseEnter={() => setHover(i)} onFocus={() => setHover(i)} />
           ))}
         </svg>
-        <span className="faint" style={{ fontSize: 12 }}>{unit}</span>
+        <span className="visually-hidden">{unit}</span>
       </figure>
     );
   };
 
   return (
     <div ref={ref} className={styles.root}>
-      {panel(["applications", "rejections"], "Per day", "Applications sent and rejections received each day (IST).")}
+      {panel(["applications", "rejections"], "Sent and rejected, per day", "Applications sent and rejections received each day (IST).")}
       {panel(["waiting"], "Waiting for a reply", "Applications from the previous 45 days with no reply yet, at the end of each day.")}
       {hover !== null && (
         <div className={styles.tip} style={{ left: Math.min(Math.max(x(hover) - 70, 0), w - 150) }} role="status">
@@ -113,9 +131,9 @@ export function TrendChart({ series }: { series: DayPoint[] }) {
           ))}
         </div>
       )}
-      <details className={styles.table}>
-        <summary>Show as a table</summary>
+      <div className="visually-hidden">
         <table>
+          <caption>Last 7 days, by day</caption>
           <thead><tr><th>Day</th><th>Applied</th><th>Rejected</th><th>Waiting</th></tr></thead>
           <tbody>
             {series.map((p) => (
@@ -123,7 +141,7 @@ export function TrendChart({ series }: { series: DayPoint[] }) {
             ))}
           </tbody>
         </table>
-      </details>
+      </div>
     </div>
   );
 }

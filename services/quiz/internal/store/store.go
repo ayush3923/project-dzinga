@@ -103,6 +103,26 @@ CREATE TABLE prep_questions (
 	UNIQUE (user_id, day, position)
 );
 `,
+	// v4: improvement drills. Feedback on a written or spoken answer can set a few
+	// specific things to do next time; feedback on a later answer checks each one.
+	`
+CREATE TABLE drills (
+	id                  INTEGER PRIMARY KEY,
+	user_id             TEXT    NOT NULL,
+	from_question_id    INTEGER NOT NULL REFERENCES quiz_questions (id) ON DELETE CASCADE,
+	day                 TEXT    NOT NULL,  -- the quiz day of the answer it came from (IST)
+	kind                TEXT    NOT NULL CHECK (kind IN ('subjective', 'voice', 'any')),
+	position            INTEGER NOT NULL,
+	text                TEXT    NOT NULL,
+	status              TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'met', 'partly', 'missed')),
+	checked_question_id INTEGER REFERENCES quiz_questions (id) ON DELETE SET NULL,
+	checked_day         TEXT,              -- the quiz day of the answer it was checked against
+	check_note          TEXT    NOT NULL DEFAULT '',
+	created_at          TEXT    NOT NULL,
+	checked_at          TEXT
+);
+CREATE INDEX drills_open ON drills (user_id, status);
+`,
 }
 
 func Open(path string) (*Store, error) {

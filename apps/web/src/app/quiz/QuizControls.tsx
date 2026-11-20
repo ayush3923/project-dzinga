@@ -11,9 +11,10 @@ function Feedback({ q }: { q: QuizQuestion }) {
   if (!r.feedback_at) {
     return <p className="faint">Saved. Claude adds feedback on its next scheduled run.</p>;
   }
+  const tone = r.score === null ? "neutral" : r.score >= 8 ? "good" : r.score >= 5 ? "fair" : "low";
   return (
-    <div className={styles.feedback}>
-      <strong>Feedback{r.score !== null && <> · {r.score}/10</>}</strong>
+    <div className={styles.feedback} data-tone={tone}>
+      <span className={styles.feedbackHead}>Feedback{r.score !== null && <span className={styles.score}>{r.score}/10</span>}</span>
       <p>{r.feedback}</p>
       {r.transcript && (
         <details>
@@ -53,7 +54,7 @@ export function McqQuestion({ q: initial }: { q: QuizQuestion }) {
         })}
       </ul>
       {done && (
-        <p className={styles.result} data-correct={q.response?.correct ?? false}>
+        <p className={styles.explain} data-tone={q.response?.correct ? "good" : "low"}>
           <strong>{q.response?.correct ? "Right." : "Not quite."}</strong> {q.explanation}
         </p>
       )}

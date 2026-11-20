@@ -22,7 +22,7 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 | `fit_suggestions` | improvement suggestion per run | position, text | agent |
 | `fit_evidence` | requirement mapped to the profile (correlation stage) | requirement, evidence, strength (strong, partial, missing) | agent |
 | `fit_points` | strength or gap per run | kind (strength, gap), position, text | agent |
-| `outreach_drafts` | cold-email draft (never sent) | contact_id, subject, body, product_analysis, model | agent, on request |
+| `outreach_drafts` | cold-email draft (never sent) | contact_id or recipient, subject, body, product_analysis, model, seen_at (NULL = new, flagged on the tile) | Claude, from an `outreach` request (or the agent) |
 | `outreach_points` | supporting bullet per draft | kind (experience, value_add, improvement), position, text | agent |
 | `profiles` | candidate profile | full_name, headline, current_title, current_company, total_years, location, summary | user |
 | `profile_experiences` | role in the profile | position, title, company, start_month, end_month, location | user |
@@ -32,7 +32,7 @@ uses PostgreSQL with the same tables, plus row-level security on `user_id`.
 | `intents` | job-search intent (PRD stage 1) | roles, designation, locations, salary range, company types, situation | user |
 | `interview_notes` | the user's notes on an interview round | round (0 = not given), body, created_at | user (only in the interview stage) |
 | `interview_reviews` | Claude's read on the notes (history kept; latest shown) | chance (low, medium, high), summary, signals, concerns, next_steps, model | Claude (scheduled run) |
-| `research_requests` | queued work for Claude (ADR 0007) | kind (job_posting, fit_score, interview_review), target_id (an application), status (pending, done) | web app, refresh, a saved interview note; done when the result is saved |
+| `research_requests` | queued work for Claude (ADR 0007) | kind (job_posting, fit_score, interview_review, outreach), target_id (an application), status (pending, done); outreach adds contact_id or recipient | web app, refresh, a saved interview note; done when the result is saved |
 | `llm_usage` | Claude API call | purpose, model, input_tokens, output_tokens, web_searches | agent (cost tracking, Rule 7) |
 
 ## Organizations service tables (`data/orgs.db`, ADR 0010)
@@ -70,6 +70,7 @@ shows. `org_id` is the organizations service's id (no foreign key across service
 | `quizzes` | daily quiz (one per IST day) | day, model | Claude (scheduled run) |
 | `quiz_questions` | one of 7 questions per quiz | position, kind (mcq ×5, subjective, voice), topic (ai_news, pm_concept, org_news), prompt, options, answer, explanation, source_title, source_url | Claude |
 | `quiz_answers` | the user's answer to a question | choice, text, audio_file (name only; file in the service's audio folder), transcript, feedback, score (0–10) | user; Claude adds feedback |
+| `drills` | something feedback asked the user to do next time | from_question_id, day, kind (subjective, voice, any), text, status (open, met, partly, missed), checked_question_id, checked_day, check_note | Claude (feedback sets them; feedback on a later answer checks them) |
 | `quiz_requests` | day whose quiz a daily run asked for | day, requested_at, done_at | startoff (daily run); done when the quiz is saved |
 | `news_items` | key news item for a day (shown on the profile) | day, position, topic (ai_news, org_news), company, title, summary, source_title, url, published_on | Claude, with the daily quiz |
 | `prep_questions` | one of three bonus prep questions a day (Today page) | day, position, company, role, question, why, approach | Claude, with the daily quiz |

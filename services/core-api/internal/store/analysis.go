@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -46,6 +47,8 @@ type AppAnalysis struct {
 	InterviewCount int            `json:"interview_rounds"` // estimated from invites
 	Fit            *FitSummary    `json:"fit"`
 	PostingURL     string         `json:"posting_url"`
+	// The cold email: queued (for Claude), ready (drafted, not opened yet), drafted, or "".
+	DraftState string `json:"draft_state"`
 }
 
 type DurationStat struct {
@@ -135,6 +138,10 @@ func (s *Store) Analysis(ctx context.Context, userID string, now time.Time) (Ana
 	if err != nil {
 		return rep, err
 	}
+	drafts, err := s.draftStates(ctx, userID)
+	if err != nil {
+		return rep, err
+	}
 
 	dwell := map[string][]float64{}
 	dwellLabel := map[string]string{}
@@ -155,7 +162,7 @@ func (s *Store) Analysis(ctx context.Context, userID string, now time.Time) (Ana
 				}
 			}
 		}
-		aa := AppAnalysis{Application: a, Timeline: tl, Open: a.Stage != "rejected", Fit: fits[a.ID], PostingURL: urls[a.ID]}
+		aa := AppAnalysis{Application: a, Timeline: tl, Open: a.Stage != "rejected", Fit: fits[a.ID], PostingURL: urls[a.ID], DraftState: drafts[a.ID]}
 		if aa.Timeline == nil {
 			aa.Timeline = []TimelineStep{}
 		}
@@ -391,6 +398,8 @@ type Contact struct {
 type OutreachDraft struct {
 	ID              int64     `json:"id"`
 	ContactID       *int64    `json:"contact_id"`
+	Recipient       string    `json:"recipient"` // who it's for, when not a contact ("Priya, HR")
+	New             bool      `json:"new"`       // not opened yet
 	Subject         string    `json:"subject"`
 	Body            string    `json:"body"`
 	ProductAnalysis string    `json:"product_analysis"`
@@ -411,6 +420,9 @@ type AppDetail struct {
 	ResearchRequestedAt *time.Time `json:"research_requested_at"`
 	// When an Opus fit score was queued for Claude (nil when not queued).
 	FitRequestedAt *time.Time `json:"fit_requested_at"`
+	// When a cold email was queued for Claude, and for whom (nil when not queued).
+	OutreachRequestedAt *time.Time `json:"outreach_requested_at"`
+	OutreachRecipient   string     `json:"outreach_recipient"`
 	// The user's notes on interview rounds, oldest first, and Claude's newest review.
 	InterviewNotes  []InterviewNote  `json:"interview_notes"`
 	InterviewReview *InterviewReview `json:"interview_review"`
@@ -455,6 +467,16 @@ func (s *Store) Detail(ctx context.Context, userID string, appID int64) (AppDeta
 	}
 	if d.ReviewRequestedAt, err = s.researchRequestedAt(ctx, userID, "interview_review", appID); err != nil {
 		return d, err
+	}
+	if d.OutreachRequestedAt, err = s.researchRequestedAt(ctx, userID, "outreach", appID); err != nil {
+		return d, err
+	}
+	if d.OutreachRequestedAt != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(r.recipient, ''), c.name, '') FROM research_requests r
+			LEFT JOIN contacts c ON c.id = r.contact_id WHERE r.user_id = ? AND r.kind = 'outreach' AND r.target_id = ? AND r.status = 'pending'`,
+			userID, appID).Scan(&d.OutreachRecipient); err != nil {
+			return d, err
+		}
 	}
 	if d.InterviewNotes, err = s.interviewNotes(ctx, appID); err != nil {
 		return d, err
@@ -573,7 +595,7 @@ func (s *Store) Detail(ctx context.Context, userID string, appID int64) (AppDeta
 	}
 	rows.Close()
 
-	rows, err = s.db.QueryContext(ctx, `SELECT id, contact_id, subject, body, product_analysis, model, created_at FROM outreach_drafts
+	rows, err = s.db.QueryContext(ctx, `SELECT id, contact_id, recipient, seen_at IS NULL, subject, body, product_analysis, model, created_at FROM outreach_drafts
 		WHERE user_id = ? AND application_id = ? ORDER BY created_at DESC, id DESC LIMIT 5`, userID, appID)
 	if err != nil {
 		return d, err
@@ -582,7 +604,7 @@ func (s *Store) Detail(ctx context.Context, userID string, appID int64) (AppDeta
 		var o OutreachDraft
 		var cid sql.NullInt64
 		var at string
-		if err := rows.Scan(&o.ID, &cid, &o.Subject, &o.Body, &o.ProductAnalysis, &o.Model, &at); err != nil {
+		if err := rows.Scan(&o.ID, &cid, &o.Recipient, &o.New, &o.Subject, &o.Body, &o.ProductAnalysis, &o.Model, &at); err != nil {
 			rows.Close()
 			return d, err
 		}
@@ -800,13 +822,16 @@ func (s *Store) SaveOutreach(ctx context.Context, userID string, appID int64, o 
 		}
 		cid = *o.ContactID
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO outreach_drafts (user_id, application_id, contact_id, subject, body, product_analysis, model, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, userID, appID, cid, truncate(o.Subject, 300), truncate(o.Body, 8000),
+	res, err := tx.ExecContext(ctx, `INSERT INTO outreach_drafts (user_id, application_id, contact_id, recipient, subject, body, product_analysis, model, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, userID, appID, cid, truncate(strings.TrimSpace(o.Recipient), 120), truncate(o.Subject, 300), truncate(o.Body, 8000),
 		truncate(o.ProductAnalysis, 4000), o.Model, now.UTC().Format(time.RFC3339))
 	if err != nil {
 		return 0, err
 	}
 	did, _ := res.LastInsertId()
+	if err := markResearchDone(ctx, tx, userID, "outreach", appID, now); err != nil {
+		return 0, err
+	}
 	for kind, items := range map[string][]string{"experience": o.Experience, "value_add": o.ValueAdds, "improvement": o.Improvements} {
 		for i, t := range items {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO outreach_points (draft_id, kind, position, text) VALUES (?, ?, ?, ?)`,

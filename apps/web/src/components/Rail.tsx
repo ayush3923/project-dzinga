@@ -17,7 +17,7 @@ const TRACK: Item[] = [
   { href: "/pipeline", label: "Pipeline", icon: icon("M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v5h-4z") },
   { href: "/organizations", label: "Organizations", icon: icon("M3 21h18M5 21V7l7-4 7 4v14M9 9h1M14 9h1M9 13h1M14 13h1M9 17h1M14 17h1") },
   { href: "/analysis", label: "Analysis", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
-  { href: "/quiz", label: "Daily quiz", icon: icon("M9 9a3 3 0 1 1 4 2.8c-.6.3-1 .9-1 1.6V14M12 17h.01M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z") },
+  { href: "/quiz", label: "Preparation", icon: icon("M9 9a3 3 0 1 1 4 2.8c-.6.3-1 .9-1 1.6V14M12 17h.01M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z") },
 ];
 
 const CONFIGURE: Item[] = [
@@ -26,7 +26,7 @@ const CONFIGURE: Item[] = [
 ];
 
 // Later PRD stages, shown collapsed so the nav stays simple (progressive disclosure).
-const SOON = ["Discover", "Prepare", "Hiring news"];
+const SOON = ["Discover", "Hiring news"];
 
 export function Rail() {
   const path = usePathname();

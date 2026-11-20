@@ -259,7 +259,15 @@ func (s *Server) internalQuestion(w http.ResponseWriter, r *http.Request) {
 	if err == nil && x.Response != nil && x.Response.AudioFile != "" && s.AudioDir != "" {
 		audio = filepath.Join(s.AudioDir, filepath.Base(x.Response.AudioFile))
 	}
-	s.writeResult(w, r, err, http.StatusOK, map[string]any{"question": x, "audio_path": audio})
+	// The open drills this answer should be checked against (set on earlier days).
+	open := []store.Drill{}
+	if err == nil && x.Kind != "mcq" {
+		var day string
+		if day, err = s.Store.QuestionDay(r.Context(), s.UserID, id); err == nil {
+			open, err = s.Store.OpenDrills(r.Context(), s.UserID, x.Kind, day)
+		}
+	}
+	s.writeResult(w, r, err, http.StatusOK, map[string]any{"question": x, "audio_path": audio, "open_drills": open})
 }
 
 func (s *Server) putFeedback(w http.ResponseWriter, r *http.Request) {
@@ -269,9 +277,11 @@ func (s *Server) putFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Transcript string `json:"transcript"`
-		Feedback   string `json:"feedback"`
-		Score      int    `json:"score"`
+		Transcript string             `json:"transcript"`
+		Feedback   string             `json:"feedback"`
+		Score      int                `json:"score"`
+		Drills     []store.NewDrill   `json:"drills"` // what to do next time (replaces this answer's earlier drills)
+		Checks     []store.DrillCheck `json:"checks"` // verdicts on open drills from earlier days
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -281,7 +291,21 @@ func (s *Server) putFeedback(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "feedback is required and score must be 0-10")
 		return
 	}
-	s.writeResult(w, r, s.Store.SaveFeedback(r.Context(), s.UserID, id, body.Transcript, body.Feedback, body.Score, s.Now()), http.StatusNoContent, nil)
+	s.writeResult(w, r, s.Store.SaveFeedback(r.Context(), s.UserID, id, body.Transcript, body.Feedback, body.Score, body.Drills, body.Checks, s.Now()), http.StatusNoContent, nil)
+}
+
+// drills is the Preparation page's improvement focus: open drills, and those
+// checked in the last 14 days.
+func (s *Server) drills(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	open, err := s.Store.OpenDrills(ctx, s.UserID, "", "")
+	if err != nil {
+		s.writeResult(w, r, err, 0, nil)
+		return
+	}
+	since := s.Now().In(store.IST).AddDate(0, 0, -13).Format("2006-01-02")
+	recent, err := s.Store.RecentChecks(ctx, s.UserID, since)
+	s.writeResult(w, r, err, http.StatusOK, map[string]any{"open": open, "recent": recent})
 }
 
 // prep is the bonus prep questions for the Today page: today's, or the newest before it.

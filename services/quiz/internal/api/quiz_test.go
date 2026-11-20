@@ -137,12 +137,26 @@ func TestQuizAPI(t *testing.T) {
 	if filepath.Dir(iq.AudioPath) != dir {
 		t.Errorf("audio path %q", iq.AudioPath)
 	}
-	fb := map[string]any{"transcript": "MCP lets agents call tools.", "feedback": "Clear; add a business example.", "score": 7}
+	fb := map[string]any{"transcript": "MCP lets agents call tools.", "feedback": "Clear; add a business example.", "score": 7,
+		"drills": []map[string]string{{"kind": "voice", "text": "Open with one business example"}}}
+	badDrill := map[string]any{"feedback": "x", "score": 5, "drills": []map[string]string{{"kind": "voice", "text": "short"}}}
+	if res := do(t, "PUT", ts.URL+"/internal/v1/questions/"+itoa(voice)+"/feedback", "Bearer "+token, badDrill); res.StatusCode != 400 {
+		t.Errorf("too-short drill accepted: %d", res.StatusCode)
+	}
 	if res := do(t, "PUT", ts.URL+"/internal/v1/questions/"+itoa(voice)+"/feedback", "", fb); res.StatusCode != 401 {
 		t.Errorf("feedback without token: %d", res.StatusCode)
 	}
 	if res := do(t, "PUT", ts.URL+"/internal/v1/questions/"+itoa(voice)+"/feedback", "Bearer "+token, fb); res.StatusCode != 204 {
 		t.Errorf("feedback: %d", res.StatusCode)
+	}
+	dr := decodeBody[struct {
+		Open []struct {
+			Kind string `json:"kind"`
+			Text string `json:"text"`
+		} `json:"open"`
+	}](t, do(t, "GET", ts.URL+"/api/v1/drills", "", nil))
+	if len(dr.Open) != 1 || dr.Open[0].Kind != "voice" {
+		t.Errorf("drills: %+v", dr)
 	}
 	if res := put(t, id(voice)+"/voice", "audio/webm", webm); res.StatusCode != 409 {
 		t.Errorf("re-record after feedback: %d", res.StatusCode)

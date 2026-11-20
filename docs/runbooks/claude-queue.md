@@ -105,7 +105,8 @@ Research first, then write.
 Then write 7 questions and save with `scripts/dzq.sh PUT quiz/internal/v1/quizzes <file>`:
 
 - 5 `mcq`: 2 `ai_news`, 1 `pm_concept`, 2 `org_news`. 4 options each, one correct
-  (`answer` is its index), plausible distractors, a 1–2 sentence `explanation`, and
+  (`answer` is its index; put it in a different position across the day's questions,
+  never always first), plausible distractors of similar length and detail, a 1–2 sentence `explanation`, and
   `source_title` and `source_url` (https) for news questions.
 - 1 `subjective` (`pm_concept`): a short case applying a concept to one of the 4 companies.
 - 1 `voice` (`org_news` or `ai_news`): something to say out loud in 1–2 minutes, like an
@@ -196,16 +197,32 @@ read on their chances.
 
 ## 6. Feedback on a written or spoken answer (quiz service, `feedback` in pending)
 
+Judge against a principal product manager bar: substance (does it answer the exact
+question, with a clear structure, evidence and numbers), flow, clarity and the terms used.
+For spoken answers also judge delivery: hedges and filler phrases, restarts, long pauses
+(whisper's segment timings show them) and length. whisper's base model drops "um" and
+"uh" and mishears some names, so say so when it matters.
+
 1. `scripts/dzq.sh GET quiz/internal/v1/questions/{question_id}` gives the question, the
-   answer and, for a spoken answer, `audio_path`.
+   answer, for a spoken answer `audio_path`, and `open_drills`: what earlier feedback asked
+   the user to do next time, for this kind of answer.
 2. Spoken answers: transcribe on this Mac only, with whisper.cpp:
    `whisper-cli -m ~/.dzinga/whisper/ggml-base.en.bin -f <audio> -otxt -of <scratch file>`
    (convert to 16 kHz WAV first with `ffmpeg -i <audio> -ar 16000 -ac 1 <file>.wav`). If
    whisper.cpp isn't installed, leave the request pending and say so in your report.
    Never upload a recording anywhere.
-3. Save with `scripts/dzq.sh PUT quiz/internal/v1/questions/{id}/feedback <file>`: `transcript` (spoken only),
-   `feedback` (what was strong, what to add or cut, one better phrasing; under 120 words)
-   and `score` (0–10).
+3. Check each open drill against this answer: `met` (clearly done), `partly` or `missed`,
+   with a one-line `note` quoting or pointing to the evidence. Count it in the score.
+4. Save with `scripts/dzq.sh PUT quiz/internal/v1/questions/{id}/feedback <file>`:
+   - `transcript` (spoken only), `feedback` (what was strong, what to add or cut, one
+     better phrasing; under 120 words) and `score` (0–10);
+   - `checks`: one per open drill, `{"drill_id", "result", "note"}`;
+   - `drills`: up to 4 specific things to do next time, `{"kind", "text"}` with `kind`
+     `subjective`, `voice` or `any` (both). Make each one observable in a single answer
+     ("one north-star metric, not four"; "no 'I believe'"), not a general aim. Carry a
+     `missed` or `partly` drill forward as a new drill when it still matters.
+   The Preparation page shows open drills at the top, and how well they're followed is
+   part of the readiness index's quiz third.
 
 ## 7. `job_posting` and `company_profile`
 
@@ -248,6 +265,19 @@ Each daily run tops the queue up to 5 organizations picked at random; the user c
 {"summary": "…", "model": "claude-opus-5-5",
  "causes": [{"text": "…", "confidence": "medium"}], "actions": ["…"]}
 ```
+
+## 8b. `outreach`: a cold email (core-api queue)
+
+The user pressed "Draft cold email" in Analysis. The request has `contact_id` (a contact
+on the application) or `recipient` (who it's for, as typed). Read the application, its
+posting and fit, and the profile. Write under 100 words, to be read and answered: a
+specific subject (role and requisition id), one line on why you're writing, one proof
+point with a number, one line on the value to them, and one easy question. No flattery,
+no attachments, no claims the profile doesn't support. Use `[Name]` when the name isn't
+known. Save with `scripts/dzq.sh POST /internal/v1/applications/{id}/outreach <file>`:
+`subject`, `body`, `recipient` (or `contact_id`), `model`; optional `product_analysis`,
+`experience_points`, `value_adds`, `improvement_ideas`. Saving completes the request and
+shows a "ready" icon on the application's tile until the user opens it.
 
 ## 9. Report
 

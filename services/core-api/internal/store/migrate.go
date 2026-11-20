@@ -507,6 +507,30 @@ var _ = appendMigration(`
 ALTER TABLE events ADD COLUMN job_ref TEXT NOT NULL DEFAULT '';
 `)
 
+// v16: cold emails go through Claude's queue (an 'outreach' request, with the contact
+// or a recipient the user typed), and a new draft is flagged until it is opened.
+var _ = appendMigration(`
+CREATE TABLE research_requests_v16 (
+	id         INTEGER PRIMARY KEY,
+	user_id    TEXT    NOT NULL,
+	kind       TEXT    NOT NULL CHECK (kind IN ('company_profile', 'job_posting', 'fit_score', 'interview_review', 'outreach')),
+	target_id  INTEGER NOT NULL,
+	status     TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done')),
+	created_at TEXT    NOT NULL,
+	done_at    TEXT,
+	contact_id INTEGER,                    -- outreach: a contact on the application
+	recipient  TEXT    NOT NULL DEFAULT '' -- outreach: who it's for, as the user typed it ("Priya, HR")
+);
+INSERT INTO research_requests_v16 (id, user_id, kind, target_id, status, created_at, done_at)
+	SELECT id, user_id, kind, target_id, status, created_at, done_at FROM research_requests;
+DROP TABLE research_requests;
+ALTER TABLE research_requests_v16 RENAME TO research_requests;
+CREATE UNIQUE INDEX research_requests_one_pending ON research_requests (user_id, kind, target_id) WHERE status = 'pending';
+ALTER TABLE outreach_drafts ADD COLUMN recipient TEXT NOT NULL DEFAULT '';
+ALTER TABLE outreach_drafts ADD COLUMN seen_at TEXT;
+UPDATE outreach_drafts SET seen_at = created_at; -- drafts from before this change aren't new
+`)
+
 // Migrations are listed here, in order, and nowhere else: Go initialises files
 // alphabetically, so a migration declared in another file could run out of order.
 

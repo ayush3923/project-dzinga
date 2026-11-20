@@ -166,6 +166,8 @@ export interface AppAnalysis extends Application {
   interview_rounds: number;
   fit: { total: number; band: FitBand; verdict: string; created_at: string } | null;
   posting_url: string;
+  /** The cold email: queued for Claude, ready (drafted, not opened yet), drafted, or "". */
+  draft_state: "" | "queued" | "ready" | "drafted";
 }
 
 export interface DurationStat {
@@ -245,6 +247,10 @@ export interface AppDetail {
   drafts: {
     id: number;
     contact_id: number | null;
+    /** Who it's for, when not a contact. */
+    recipient: string;
+    /** Not opened yet. */
+    new: boolean;
     subject: string;
     body: string;
     product_analysis: string;
@@ -257,6 +263,9 @@ export interface AppDetail {
   job_links: string[];
   research_requested_at: string | null;
   fit_requested_at: string | null;
+  /** When a cold email was queued for Claude, and for whom. */
+  outreach_requested_at: string | null;
+  outreach_recipient: string;
 }
 
 export interface Experience {
@@ -294,6 +303,23 @@ export interface QuizStats {
   feedback_queued: number;
   days: { day: string; answered: number; correct: number; total: number }[];
   last_answered_at: string | null;
+  drills_checked_7d: number;
+  /** How well improvement drills checked in the last 7 days were followed, 0–100. */
+  follow_through_7d: number | null;
+  drills_open: number;
+}
+
+/** Something feedback asked you to do next time, and whether a later answer did it. */
+export interface Drill {
+  id: number;
+  day: string;
+  kind: "subjective" | "voice" | "any";
+  text: string;
+  status: "open" | "met" | "partly" | "missed";
+  checked_day?: string;
+  check_note?: string;
+  created_at: string;
+  checked_at: string | null;
 }
 
 export interface NewsItem {
@@ -582,6 +608,7 @@ export const api = {
   requestFit: (id: number) =>
     call<{ research_requested_at: string }>(`/api/v1/applications/${id}/fit-request`, { method: "POST" }),
   quizStats: () => quizCall<QuizStats>("/api/v1/stats"),
+  drills: () => quizCall<{ open: Drill[]; recent: Drill[] }>("/api/v1/drills"),
   news: () => quizCall<{ day: string; items: NewsItem[] }>("/api/v1/news"),
   uploadPhoto: (photo: Blob) =>
     call<Profile>("/api/v1/profile/photo", {
@@ -606,6 +633,10 @@ export const api = {
     return res;
   },
   runFit: (id: number) => agentCall<unknown>(`/v1/applications/${id}/fit`),
-  runOutreach: (id: number, contactId: number | null) =>
-    agentCall<unknown>(`/v1/applications/${id}/outreach`, { contact_id: contactId }),
+  /** Queues a cold email for Claude; it's drafted on the next run. */
+  requestOutreach: (id: number, contactId: number | null, recipient: string) =>
+    call<{ outreach_requested_at: string }>(`/api/v1/applications/${id}/outreach-request`, {
+      method: "POST", body: JSON.stringify({ contact_id: contactId, recipient }),
+    }),
+  draftsSeen: (id: number) => call<void>(`/api/v1/applications/${id}/drafts/seen`, { method: "POST" }),
 };

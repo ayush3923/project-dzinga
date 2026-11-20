@@ -100,7 +100,7 @@ func TestStats(t *testing.T) {
 		}
 		if written {
 			s.AnswerQuestion(ctx, "u", q.Questions[5].ID, nil, "Tiered pricing", "", now)
-			s.SaveFeedback(ctx, "u", q.Questions[5].ID, "", "Good.", 7, now)
+			s.SaveFeedback(ctx, "u", q.Questions[5].ID, "", "Good.", 7, nil, nil, now)
 			s.AnswerQuestion(ctx, "u", q.Questions[6].ID, nil, "", "q7-1.webm", now)
 		}
 	}

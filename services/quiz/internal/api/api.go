@@ -37,6 +37,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/stats", s.stats)
 	mux.HandleFunc("GET /api/v1/news", s.news)
 	mux.HandleFunc("GET /api/v1/prep", s.prep)
+	mux.HandleFunc("GET /api/v1/drills", s.drills)
 	// Called by the sync service (after a refresh) and by Claude's scheduled run.
 	mux.Handle("POST /internal/v1/requests", s.requireInternal(http.HandlerFunc(s.requestQuiz)))
 	mux.Handle("GET /internal/v1/pending", s.requireInternal(http.HandlerFunc(s.pending)))
@@ -118,7 +119,7 @@ func (s *Server) writeResult(w http.ResponseWriter, r *http.Request, err error, 
 		writeErr(w, http.StatusNotFound, "not found")
 	case errors.Is(err, store.ErrQuizExists), errors.Is(err, store.ErrAnswered):
 		writeErr(w, http.StatusConflict, err.Error())
-	case errors.Is(err, store.ErrBadAnswer):
+	case errors.Is(err, store.ErrBadAnswer), errors.Is(err, store.ErrBadDrill):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case err != nil:
 		s.internalErr(w, r, err)
