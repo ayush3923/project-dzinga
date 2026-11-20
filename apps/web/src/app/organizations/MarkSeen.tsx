@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { briefingSeenAction } from "@/app/actions";
+import { organizationSeenAction } from "@/app/actions";
 
-/** Opening the drawer counts as checking what's new; this clears the list's flag. */
+/** Opening the drawer counts as checking what's new; this clears the list's flags. */
 export function MarkSeen({ id }: { id: number }) {
   useEffect(() => {
-    void briefingSeenAction(id);
+    void organizationSeenAction(id);
   }, [id]);
   return null;
 }

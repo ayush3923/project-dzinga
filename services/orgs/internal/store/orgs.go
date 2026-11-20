@@ -89,6 +89,8 @@ type OrgSummary struct {
 	HasDiagnosis       bool           `json:"has_diagnosis"`
 	// Something new from the daily quiz (news, leaders, revenue) the user hasn't opened yet.
 	BriefingUnseen bool `json:"briefing_unseen"`
+	// A diagnosis written since the user last opened the organization.
+	DiagnosisUnseen bool `json:"diagnosis_unseen"`
 }
 
 type OrgsReport struct {
@@ -190,7 +192,8 @@ func (s *Store) Organizations(ctx context.Context, userID string, apps []App, no
 	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.name,
 		EXISTS (SELECT 1 FROM company_profiles p WHERE p.organization_id = o.id),
 		EXISTS (SELECT 1 FROM org_diagnoses d WHERE d.organization_id = o.id),
-		EXISTS (SELECT 1 FROM org_briefings b WHERE b.organization_id = o.id AND (b.seen_at IS NULL OR b.seen_at < b.updated_at))
+		EXISTS (SELECT 1 FROM org_briefings b WHERE b.organization_id = o.id AND (b.seen_at IS NULL OR b.seen_at < b.updated_at)),
+		EXISTS (SELECT 1 FROM org_diagnoses d WHERE d.organization_id = o.id AND d.seen_at IS NULL)
 		FROM organizations o WHERE o.user_id = ?`, userID)
 	if err != nil {
 		return rep, err
@@ -198,7 +201,7 @@ func (s *Store) Organizations(ctx context.Context, userID string, apps []App, no
 	all := map[int64]*OrgSummary{}
 	for rows.Next() {
 		o := &OrgSummary{}
-		if err := rows.Scan(&o.ID, &o.Name, &o.HasProfile, &o.HasDiagnosis, &o.BriefingUnseen); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.HasProfile, &o.HasDiagnosis, &o.BriefingUnseen, &o.DiagnosisUnseen); err != nil {
 			rows.Close()
 			return rep, err
 		}
@@ -428,7 +431,7 @@ func (s *Store) SaveCompanyProfile(ctx context.Context, userID string, orgID int
 	if err := ownsOrg(ctx, tx, userID, orgID); err != nil {
 		return err
 	}
-	if err := markResearchDone(ctx, tx, userID, orgID, now); err != nil {
+	if err := markResearchDone(ctx, tx, userID, KindProfile, orgID, now); err != nil {
 		return err
 	}
 	for _, q := range []string{`DELETE FROM company_news WHERE organization_id = ?`, `DELETE FROM company_products WHERE organization_id = ?`,
@@ -485,6 +488,9 @@ func (s *Store) SaveDiagnosis(ctx context.Context, userID string, orgID int64, d
 		return err
 	}
 	did, _ := res.LastInsertId()
+	if err := markResearchDone(ctx, tx, userID, KindDiagnosis, orgID, now); err != nil {
+		return err
+	}
 	for i, c := range d.Causes {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO org_diagnosis_items (diagnosis_id, kind, position, text, confidence) VALUES (?, 'cause', ?, ?, ?)`,
 			did, i, truncate(c.Text, 800), c.Confidence); err != nil {
@@ -508,6 +514,8 @@ type OrgDetail struct {
 	Briefing  *Briefing         `json:"briefing"` // from the daily quiz (nil when none)
 	// When the user queued company research for Claude in the app (nil when not queued).
 	ResearchRequestedAt *time.Time `json:"research_requested_at"`
+	// When a diagnosis was queued for Claude in the app (nil when not queued).
+	DiagnosisRequestedAt *time.Time `json:"diagnosis_requested_at"`
 }
 
 func (s *Store) Organization(ctx context.Context, userID string, orgID int64, apps []App, now time.Time) (OrgDetail, error) {
@@ -540,7 +548,10 @@ func (s *Store) Organization(ctx context.Context, userID string, orgID int64, ap
 	for _, a := range mine {
 		d.History = append(d.History, a.Raw)
 	}
-	if d.ResearchRequestedAt, err = s.researchRequestedAt(ctx, userID, orgID); err != nil {
+	if d.ResearchRequestedAt, err = s.researchRequestedAt(ctx, userID, KindProfile, orgID); err != nil {
+		return d, err
+	}
+	if d.DiagnosisRequestedAt, err = s.researchRequestedAt(ctx, userID, KindDiagnosis, orgID); err != nil {
 		return d, err
 	}
 	if d.Briefing, err = s.briefing(ctx, orgID); err != nil {

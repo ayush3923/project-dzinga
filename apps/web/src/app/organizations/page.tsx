@@ -121,6 +121,7 @@ async function Report({ searchParams }: { searchParams: PageProps<"/organization
                 <strong>{o.name}</strong>
                 {o.preferred && <span className={styles.star} title="Preferred">★</span>}
                 {o.briefing_unseen && <NewBadge />}
+                {o.has_diagnosis && <DiagnosisBadge fresh={o.diagnosis_unseen} />}
               </span>
               <span role="cell">{o.applications} <span className="faint">({o.open} open)</span></span>
               <span role="cell"><Outcomes o={o} /></span>
@@ -151,6 +152,19 @@ function NewBadge() {
   );
 }
 
+/** A diagnosis is available; filled while it hasn't been opened. */
+function DiagnosisBadge({ fresh }: { fresh: boolean }) {
+  const label = fresh ? "New diagnosis: why this company is or isn’t moving, and what to do" : "Diagnosis available";
+  return (
+    <span className={styles.diagBadge} data-fresh={fresh} title={label}>
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+        <path d="M1.5 8.5h3l1.5-4 3 8 1.8-5.5.9 1.5h2.8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className="visually-hidden">{label}</span>
+    </span>
+  );
+}
+
 function PreferredCard({ o, href }: { o: OrgSummary; href: string }) {
   return (
     <Link href={href} scroll={false} className={`card ${styles.prefCard}`}>
@@ -158,6 +172,7 @@ function PreferredCard({ o, href }: { o: OrgSummary; href: string }) {
         <CompanyLogo company={o.name} />
         <strong>{o.name}</strong>
         {o.briefing_unseen && <NewBadge />}
+        {o.has_diagnosis && <DiagnosisBadge fresh={o.diagnosis_unseen} />}
       </div>
       {o.applications === 0 ? (
         <p className="faint">No applications yet</p>

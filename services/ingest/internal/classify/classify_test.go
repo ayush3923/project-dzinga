@@ -243,6 +243,13 @@ func TestClassify(t *testing.T) {
 			ok: true, kind: "rejected", company: "Accenture",
 		},
 		{
+			name: "polite does-not-align rejection",
+			msg: Message{FromName: "Razorpay", FromAddr: "no-reply@us.greenhouse-mail.io",
+				Subject: "Thank you for your Interest in Razorpay, Ayush!", Text: "Thank you for applying to the Senior Product Manager role at Razorpay. " +
+					"We are impressed with your interest, however your skill set and experience does not align with this particular role at the moment."},
+			ok: true, kind: "rejected", company: "Razorpay",
+		},
+		{
 			name: "html entity in company",
 			msg: Message{FromName: "LinkedIn&nbsp;Recruiting", FromAddr: "jobs@smartrecruiters.com",
 				Subject: "Your Application for Principal Product Manager - LinkedIn", Text: "Thank you for applying to LinkedIn&nbsp;"},

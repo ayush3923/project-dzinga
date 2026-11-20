@@ -26,8 +26,9 @@ scripts/dzq.sh POST sync
 ```
 
 Then run `scripts/dzq.sh GET sync` every few seconds until `"running":false`. The refresh
-queues an Opus fit score for each new open application (core-api) and asks the quiz
-service for today's quiz (ADR 0008).
+queues an Opus fit score for each new open application (core-api), asks the quiz
+service for today's quiz (ADR 0008) and queues diagnoses for 5 organizations picked at
+random, topping up to 5 pending (organizations service).
 
 ## 2. Read the queue
 
@@ -38,7 +39,7 @@ scripts/dzq.sh GET quiz/internal/v1/pending
 ```
 
 The first is core-api's queue (`fit_score`, `job_posting`, `interview_review`); work it
-oldest first. The second is the organizations service's (`company_profile`, ADR 0010).
+oldest first. The second is the organizations service's (`company_profile` and `diagnosis`, ADR 0010).
 The third is the quiz service's: `quizzes`
 (days to build), `news` (days whose key news is missing), `prep` (today, when its bonus
 prep questions are missing) and `feedback` (answers awaiting feedback). Saving a result marks
@@ -204,8 +205,40 @@ read on their chances.
   `api/orgs.yaml`). The organization's applications are in
   `GET orgs/api/v1/organizations/{id}`.
 
-## 8. Report
+## 8. `diagnosis`: why an organization is or isn't moving
+
+Each refresh tops the queue up to 5 organizations picked at random; the user can also ask for one.
+
+1. `scripts/dzq.sh GET orgs/api/v1/organizations/{id}`: every application to it
+   (`application_history`: roles, stages, timeline, days to outcome), the counts
+   (`responded`, `rejected`, `avg_response_days`), `diagnosis_reason` when the list
+   flagged it, and any earlier diagnosis. For each application, read its fit score and
+   posting (`GET /api/v1/applications/{id}/detail`) and the profile.
+2. Work out what's going on from that evidence only. Things to weigh:
+   - **Timing**: days since applying against this company's own reply speed (and the
+     usual 1–3 weeks); too early to tell is a valid answer.
+   - **Fit**: low or moderate fit scores, recurring gaps, a level well above or below the
+     profile.
+   - **Volume**: several roles at once, or reapplying soon after a rejection.
+   - **Pattern**: rejections at the same stage, fast automated rejections (screening
+     criteria), or progress (shortlisted, interviews) worth building on.
+   - **Route**: applied cold with no referral or contact.
+3. Save with `scripts/dzq.sh POST orgs/internal/v1/organizations/{id}/diagnosis <file>`:
+   a `summary` (2–3 plain sentences: the read and the main reason), up to 5 `causes`
+   (each with `confidence` `high`, `medium` or `low`, most likely first), up to 4
+   `actions` (specific next steps: who to contact, what to change, when to follow up or
+   reapply) and `model` `claude-opus-5-5`. Saving completes the request and puts a
+   diagnosis icon on the organization until the user opens it.
+4. Be honest and calibrated: say when the evidence is thin. Don't invent contacts,
+   hiring freezes or reasons you didn't see in the history or a source you read.
+
+```json
+{"summary": "…", "model": "claude-opus-5-5",
+ "causes": [{"text": "…", "confidence": "medium"}], "actions": ["…"]}
+```
+
+## 9. Report
 
 End with a short summary: emails synced, fit scores saved (company, score), today's quiz
-and prep questions saved or not, briefings saved, interview reviews and feedback given,
+and prep questions saved or not, briefings and diagnoses saved, interview reviews and feedback given,
 and anything left pending and why.

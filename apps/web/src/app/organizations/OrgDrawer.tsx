@@ -2,7 +2,7 @@ import Link from "next/link";
 import { api, type Briefing, type Figure, type OrgDetail } from "@/lib/api";
 import { shortDate } from "@/lib/format";
 import { CompanyLogo, MailboxIcons, StageBadge } from "@/components/ui";
-import { OrgAgentButton } from "./OrgAgentButton";
+import { DiagnoseButton } from "./DiagnoseButton";
 import { ResearchButton } from "@/components/ResearchButton";
 import { MarkSeen } from "./MarkSeen";
 import styles from "./organizations.module.css";
@@ -38,7 +38,7 @@ export async function OrgDrawer({ id, closeHref }: { id: number; closeHref: stri
         </div>
 
         {o.briefing && <BriefingSection b={o.briefing} unseen={unseen} />}
-        {unseen && <MarkSeen id={o.id} />}
+        {(unseen || o.diagnosis_unseen) && <MarkSeen id={o.id} />}
 
         {/* Lifetime view: every application to this organization */}
         <section className={styles.section}>
@@ -67,10 +67,14 @@ export async function OrgDrawer({ id, closeHref }: { id: number; closeHref: stri
           )}
         </section>
 
-        {/* Diagnosis (Sonnet 5) when the company is silent or only rejects */}
-        {(o.diagnosis_suggested || o.diagnosis) && (
+        {/* Diagnosis, written by Claude in the app: five organizations at random each refresh, or on request */}
+        {(o.diagnosis_suggested || o.diagnosis || o.diagnosis_requested_at || o.applications > 0) && (
           <section className={styles.section}>
-            <h3>Diagnosis {o.diagnosis_reason && <span className="faint">· {o.diagnosis_reason}</span>}</h3>
+            <h3>
+              Diagnosis
+              {o.diagnosis_unseen && <span className={styles.newTag}>New</span>}
+              {o.diagnosis_reason && <span className="faint"> · {o.diagnosis_reason}</span>}
+            </h3>
             {o.diagnosis ? (
               <>
                 <p>{o.diagnosis.summary}</p>
@@ -90,13 +94,13 @@ export async function OrgDrawer({ id, closeHref }: { id: number; closeHref: stri
                 )}
                 <p className="faint">
                   {shortDate(o.diagnosis.created_at)} · {o.diagnosis.model}.{" "}
-                  <OrgAgentButton id={o.id} label="Run again" quiet />
+                  <DiagnoseButton id={o.id} label="Ask again" requestedAt={o.diagnosis_requested_at} quiet />
                 </p>
               </>
             ) : (
               <>
-                <p className="muted">Rules check your history with {o.name} (timing, fit scores, rejections, how many roles) for likely reasons and next steps; Claude Sonnet 5 writes a two-line summary.</p>
-                <OrgAgentButton id={o.id} label="Diagnose" />
+                <p className="muted">Claude reads your history with {o.name} (timing, stages, fit scores, rejections, how many roles) and explains what&rsquo;s likely going on and what to do next. Each refresh diagnoses five organizations at random.</p>
+                <DiagnoseButton id={o.id} label="Diagnose" requestedAt={o.diagnosis_requested_at} />
               </>
             )}
           </section>

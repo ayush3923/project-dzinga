@@ -148,9 +148,9 @@ export async function requestResearchAction(kind: "organizations" | "application
 export async function diagnoseAction(id: number): Promise<{ error?: string }> {
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid organization." };
   try {
-    await api.runDiagnosis(id);
+    await api.requestDiagnosis(id);
   } catch (e) {
-    return { error: message(e, "The diagnosis failed.") };
+    return { error: message(e, "Couldn’t queue the diagnosis.") };
   }
   refresh();
   return {};
@@ -351,10 +351,10 @@ export async function addInterviewNoteAction(id: unknown, round: unknown, body: 
 }
 
 /** Clears an organization's "something new" flag once its drawer is opened. */
-export async function briefingSeenAction(id: unknown): Promise<void> {
+export async function organizationSeenAction(id: unknown): Promise<void> {
   if (!validId(id)) return;
   try {
-    await api.briefingSeen(id);
+    await api.organizationSeen(id);
   } catch {
     return; // the flag simply stays until next time
   }

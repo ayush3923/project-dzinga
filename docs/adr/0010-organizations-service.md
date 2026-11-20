@@ -15,8 +15,8 @@ ownership, as ADR 0008 did for the quiz.
 ## Decision
 
 - **`services/orgs`** (Go, port 8085) owns organizations, the preferred list, company
-  profiles, diagnoses, briefings, the `company_profile` research queue and the "worth a
-  look" suggestions, in its own SQLite database (`data/orgs.db`).
+  profiles, diagnoses, briefings, Claude's queue (`company_profile`, and `diagnosis`
+  since the update below) and the "worth a look" suggestions, in its own SQLite database (`data/orgs.db`).
 - **No stored link between services.** An application belongs to the organization whose
   key (lower-case letters and digits of the name) matches its company's. The service
   reads core-api's `GET /api/v1/analysis` on each request, creates organizations for new
@@ -31,8 +31,14 @@ ownership, as ADR 0008 did for the quiz.
   v14 then drops them, removes `applications.organization_id` and the queued
   `company_profile` requests.
 - **Cluster:** its own Deployment (one replica, `Recreate`), 1 GiB volume on the server
-  node, probes, limits, non-root, read-only root filesystem. NetworkPolicy lets web and
-  agent reach it; its only egress is core-api.
+  node, probes, limits, non-root, read-only root filesystem. NetworkPolicy lets web,
+  ingest and agent reach it; its only egress is core-api.
+- **Update (2026-11-20): diagnoses by Claude in the app.** After each refresh the sync
+  service calls `POST /internal/v1/diagnosis-requests`, which tops the queue up to 5 `diagnosis` requests for
+  organizations picked at random (with applications, none already queued, and no
+  diagnosis or one out of date). Claude works them per the runbook, as with profiles
+  (ADR 0007), instead of the agent's rules-plus-Sonnet path. A new diagnosis flags the
+  organization on the list until it is opened.
 
 ## Consequences
 
