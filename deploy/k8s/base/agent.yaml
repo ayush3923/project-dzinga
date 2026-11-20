@@ -48,6 +48,7 @@ spec:
             - { name: DZ_AGENT_ADDR, value: "0.0.0.0:8082" }
             - { name: DZ_CORE_URL, value: "http://core-api:8091" }
             - { name: DZ_ORGS_URL, value: "http://orgs:8085" }
+            - { name: DZ_STARTOFF_URL, value: "http://startoff:8086" }
             - name: DZ_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef: { name: dzinga-internal, key: internal-token }

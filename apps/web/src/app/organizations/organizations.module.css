@@ -111,3 +111,7 @@
 .facts dd { margin: 0; display: grid; gap: 2px; font-size: var(--text-md); }
 .facts dd .faint { font-size: var(--text-sm); }
 @media (max-width: 520px) { .facts { grid-template-columns: 1fr; } }
+
+.earlier { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.earlier li { display: grid; grid-template-columns: 76px 1fr; gap: 10px; font-size: var(--text-sm); }
+@media (max-width: 520px) { .earlier li { grid-template-columns: 1fr; gap: 2px; } }

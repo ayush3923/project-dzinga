@@ -1,7 +1,7 @@
-// Package store owns the organizations service's data: organizations, the user's
-// preferred list, company profiles, diagnoses, briefings from the daily quiz, and
-// the company-research queue. Applications stay in core-api; the views here are
-// computed from core-api's analysis on each request. Every query is scoped by user ID.
+// Package store owns the organizations service's data: organizations and the
+// user's preferred list. Company research moved to the startoff service (ADR 0011).
+// Applications stay in core-api; the views here are computed from core-api's
+// analysis on each request. Every query is scoped by user ID.
 package store
 
 import (
@@ -154,6 +154,21 @@ DROP INDEX research_requests_one_pending;
 CREATE UNIQUE INDEX research_requests_one_pending ON research_requests (user_id, organization_id, kind) WHERE status = 'pending';
 ALTER TABLE org_diagnoses ADD COLUMN seen_at TEXT;
 UPDATE org_diagnoses SET seen_at = created_at; -- diagnoses from before this change aren't new
+`,
+	// v3: company research (profiles, quiz briefings and news, diagnoses, the research
+	// queue) moved to the startoff service, with history (ADR 0011). Import it first:
+	// make startoff-import FROM=<this database, or a backup at v2>.
+	`
+DROP TABLE company_news;
+DROP TABLE company_products;
+DROP TABLE company_leaders;
+DROP TABLE company_ratings;
+DROP TABLE company_profiles;
+DROP TABLE org_diagnosis_items;
+DROP TABLE org_diagnoses;
+DROP TABLE org_briefing_news;
+DROP TABLE org_briefings;
+DROP TABLE research_requests;
 `,
 }
 

@@ -46,15 +46,21 @@ type Core interface {
 // Orgs is the organizations service (ADR 0010): the same client type, another base URL.
 type Orgs interface {
 	Organization(ctx context.Context, id int64) (core.Organization, error)
-	SaveDiagnosis(ctx context.Context, id int64, d core.Diagnosis) error
 	Suggestions(ctx context.Context) ([]core.Suggestion, error)
 }
 
+// Research is the startoff service, which keeps diagnoses (ADR 0011): the same
+// client type, another base URL.
+type Research interface {
+	SaveDiagnosis(ctx context.Context, id int64, d core.Diagnosis) error
+}
+
 type Agent struct {
-	Core   Core
-	Orgs   Orgs
-	Router *router.Router
-	Log    *slog.Logger
+	Core     Core
+	Orgs     Orgs
+	Research Research
+	Router   *router.Router
+	Log      *slog.Logger
 	// Fetch reads a posting from a link (jd.Fetch in production).
 	Fetch func(ctx context.Context, link string) (jd.Posting, error)
 }

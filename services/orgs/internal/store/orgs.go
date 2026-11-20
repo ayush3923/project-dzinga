@@ -85,12 +85,6 @@ type OrgSummary struct {
 	AvgResponseDays    *float64       `json:"avg_response_days"`
 	DiagnosisSuggested bool           `json:"diagnosis_suggested"`
 	DiagnosisReason    string         `json:"diagnosis_reason"`
-	HasProfile         bool           `json:"has_profile"`
-	HasDiagnosis       bool           `json:"has_diagnosis"`
-	// Something new from the daily quiz (news, leaders, revenue) the user hasn't opened yet.
-	BriefingUnseen bool `json:"briefing_unseen"`
-	// A diagnosis written since the user last opened the organization.
-	DiagnosisUnseen bool `json:"diagnosis_unseen"`
 }
 
 type OrgsReport struct {
@@ -189,19 +183,14 @@ func (s *Store) Organizations(ctx context.Context, userID string, apps []App, no
 		return rep, err
 	}
 
-	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.name,
-		EXISTS (SELECT 1 FROM company_profiles p WHERE p.organization_id = o.id),
-		EXISTS (SELECT 1 FROM org_diagnoses d WHERE d.organization_id = o.id),
-		EXISTS (SELECT 1 FROM org_briefings b WHERE b.organization_id = o.id AND (b.seen_at IS NULL OR b.seen_at < b.updated_at)),
-		EXISTS (SELECT 1 FROM org_diagnoses d WHERE d.organization_id = o.id AND d.seen_at IS NULL)
-		FROM organizations o WHERE o.user_id = ?`, userID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name FROM organizations WHERE user_id = ?`, userID)
 	if err != nil {
 		return rep, err
 	}
 	all := map[int64]*OrgSummary{}
 	for rows.Next() {
 		o := &OrgSummary{}
-		if err := rows.Scan(&o.ID, &o.Name, &o.HasProfile, &o.HasDiagnosis, &o.BriefingUnseen, &o.DiagnosisUnseen); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name); err != nil {
 			rows.Close()
 			return rep, err
 		}
@@ -316,99 +305,6 @@ func (s *Store) SetPreferred(ctx context.Context, userID string, names []string,
 	return tx.Commit()
 }
 
-// ---------- Company profile and diagnosis ----------
-
-type NewsItem struct {
-	Title       string `json:"title"`
-	PublishedOn string `json:"published_on"`
-	Summary     string `json:"summary"`
-	URL         string `json:"url"`
-}
-
-type Product struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-type Leader struct {
-	Name  string `json:"name"`
-	Title string `json:"title"`
-}
-
-type Rating struct {
-	Source      string   `json:"source"` // glassdoor | gartner_peer_insights
-	Score       *float64 `json:"score"`  // nil when not found
-	Scale       float64  `json:"scale"`
-	ReviewCount *int     `json:"review_count"`
-	URL         string   `json:"url"`
-	AsOf        string   `json:"as_of"`
-}
-
-type CompanyProfile struct {
-	Overview       string     `json:"overview"`
-	InterviewAngle string     `json:"interview_angle"`
-	News           []NewsItem `json:"news"`
-	Products       []Product  `json:"products"`
-	Leaders        []Leader   `json:"leaders"`
-	Ratings        []Rating   `json:"ratings"`
-	Model          string     `json:"model"`
-	CreatedAt      time.Time  `json:"created_at"`
-}
-
-func (p CompanyProfile) Validate() error {
-	if strings.TrimSpace(p.Overview) == "" || p.Model == "" {
-		return errors.New("overview and model are required")
-	}
-	if len(p.News) > 5 || len(p.Products) > 12 || len(p.Leaders) > 12 || len(p.Ratings) > 2 {
-		return errors.New("too many items (news ≤ 5, products ≤ 12, leaders ≤ 12, ratings ≤ 2)")
-	}
-	for _, n := range p.News {
-		if n.URL != "" && !strings.HasPrefix(n.URL, "https://") {
-			return errors.New("news links must be https")
-		}
-	}
-	for _, r := range p.Ratings {
-		if r.Source != "glassdoor" && r.Source != "gartner_peer_insights" {
-			return fmt.Errorf("invalid rating source %q", r.Source)
-		}
-		if r.Score != nil && (*r.Score < 0 || r.Scale <= 0 || *r.Score > r.Scale) {
-			return errors.New("rating out of range")
-		}
-		if r.URL != "" && !strings.HasPrefix(r.URL, "https://") {
-			return errors.New("rating links must be https")
-		}
-	}
-	return nil
-}
-
-type DiagnosisItem struct {
-	Text       string `json:"text"`
-	Confidence string `json:"confidence"` // high | medium | low
-}
-
-type Diagnosis struct {
-	Summary   string          `json:"summary"`
-	Causes    []DiagnosisItem `json:"causes"`
-	Actions   []string        `json:"actions"`
-	Model     string          `json:"model"`
-	CreatedAt time.Time       `json:"created_at"`
-}
-
-func (d Diagnosis) Validate() error {
-	if strings.TrimSpace(d.Summary) == "" || d.Model == "" {
-		return errors.New("summary and model are required")
-	}
-	if len(d.Causes) > 8 || len(d.Actions) > 8 {
-		return errors.New("too many causes or actions")
-	}
-	for _, c := range d.Causes {
-		if c.Confidence != "high" && c.Confidence != "medium" && c.Confidence != "low" {
-			return fmt.Errorf("invalid confidence %q", c.Confidence)
-		}
-	}
-	return nil
-}
-
 func ownsOrg(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, userID string, orgID int64) error {
@@ -422,100 +318,9 @@ func ownsOrg(ctx context.Context, q interface {
 	return nil
 }
 
-func (s *Store) SaveCompanyProfile(ctx context.Context, userID string, orgID int64, p CompanyProfile, now time.Time) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := ownsOrg(ctx, tx, userID, orgID); err != nil {
-		return err
-	}
-	if err := markResearchDone(ctx, tx, userID, KindProfile, orgID, now); err != nil {
-		return err
-	}
-	for _, q := range []string{`DELETE FROM company_news WHERE organization_id = ?`, `DELETE FROM company_products WHERE organization_id = ?`,
-		`DELETE FROM company_leaders WHERE organization_id = ?`, `DELETE FROM company_ratings WHERE organization_id = ?`} {
-		if _, err := tx.ExecContext(ctx, q, orgID); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO company_profiles (organization_id, user_id, overview, interview_angle, model, created_at)
-		VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id) DO UPDATE SET overview = excluded.overview,
-		interview_angle = excluded.interview_angle, model = excluded.model, created_at = excluded.created_at`,
-		orgID, userID, truncate(p.Overview, 3000), truncate(p.InterviewAngle, 3000), truncate(p.Model, 100), now.UTC().Format(time.RFC3339)); err != nil {
-		return err
-	}
-	for i, n := range p.News {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO company_news (organization_id, position, title, published_on, summary, url) VALUES (?, ?, ?, ?, ?, ?)`,
-			orgID, i, truncate(n.Title, 300), truncate(n.PublishedOn, 10), truncate(n.Summary, 800), truncate(n.URL, 2000)); err != nil {
-			return err
-		}
-	}
-	for i, pr := range p.Products {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO company_products (organization_id, position, name, description) VALUES (?, ?, ?, ?)`,
-			orgID, i, truncate(pr.Name, 150), truncate(pr.Description, 600)); err != nil {
-			return err
-		}
-	}
-	for i, l := range p.Leaders {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO company_leaders (organization_id, position, name, title) VALUES (?, ?, ?, ?)`,
-			orgID, i, truncate(l.Name, 120), truncate(l.Title, 160)); err != nil {
-			return err
-		}
-	}
-	for _, r := range p.Ratings {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO company_ratings (organization_id, source, score, scale, review_count, url, as_of) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			orgID, r.Source, r.Score, r.Scale, r.ReviewCount, truncate(r.URL, 2000), truncate(r.AsOf, 10)); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func (s *Store) SaveDiagnosis(ctx context.Context, userID string, orgID int64, d Diagnosis, now time.Time) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := ownsOrg(ctx, tx, userID, orgID); err != nil {
-		return err
-	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO org_diagnoses (user_id, organization_id, summary, model, created_at) VALUES (?, ?, ?, ?, ?)`,
-		userID, orgID, truncate(d.Summary, 2000), truncate(d.Model, 100), now.UTC().Format(time.RFC3339))
-	if err != nil {
-		return err
-	}
-	did, _ := res.LastInsertId()
-	if err := markResearchDone(ctx, tx, userID, KindDiagnosis, orgID, now); err != nil {
-		return err
-	}
-	for i, c := range d.Causes {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO org_diagnosis_items (diagnosis_id, kind, position, text, confidence) VALUES (?, 'cause', ?, ?, ?)`,
-			did, i, truncate(c.Text, 800), c.Confidence); err != nil {
-			return err
-		}
-	}
-	for i, a := range d.Actions {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO org_diagnosis_items (diagnosis_id, kind, position, text) VALUES (?, 'action', ?, ?)`,
-			did, i, truncate(a, 800)); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
 type OrgDetail struct {
 	OrgSummary
-	History   []json.RawMessage `json:"application_history"` // every application to this organization, as core-api reports it
-	Profile   *CompanyProfile   `json:"profile"`
-	Diagnosis *Diagnosis        `json:"diagnosis"`
-	Briefing  *Briefing         `json:"briefing"` // from the daily quiz (nil when none)
-	// When the user queued company research for Claude in the app (nil when not queued).
-	ResearchRequestedAt *time.Time `json:"research_requested_at"`
-	// When a diagnosis was queued for Claude in the app (nil when not queued).
-	DiagnosisRequestedAt *time.Time `json:"diagnosis_requested_at"`
+	History []json.RawMessage `json:"application_history"` // every application to this organization, as core-api reports it
 }
 
 func (s *Store) Organization(ctx context.Context, userID string, orgID int64, apps []App, now time.Time) (OrgDetail, error) {
@@ -547,97 +352,6 @@ func (s *Store) Organization(ctx context.Context, userID string, orgID int64, ap
 	d.History = []json.RawMessage{}
 	for _, a := range mine {
 		d.History = append(d.History, a.Raw)
-	}
-	if d.ResearchRequestedAt, err = s.researchRequestedAt(ctx, userID, KindProfile, orgID); err != nil {
-		return d, err
-	}
-	if d.DiagnosisRequestedAt, err = s.researchRequestedAt(ctx, userID, KindDiagnosis, orgID); err != nil {
-		return d, err
-	}
-	if d.Briefing, err = s.briefing(ctx, orgID); err != nil {
-		return d, err
-	}
-
-	var p CompanyProfile
-	var created string
-	err = s.db.QueryRowContext(ctx, `SELECT overview, interview_angle, model, created_at FROM company_profiles WHERE organization_id = ?`, orgID).
-		Scan(&p.Overview, &p.InterviewAngle, &p.Model, &created)
-	if err == nil {
-		p.CreatedAt, _ = time.Parse(time.RFC3339, created)
-		p.News, p.Products, p.Leaders, p.Ratings = []NewsItem{}, []Product{}, []Leader{}, []Rating{}
-		if err := s.scanRows(ctx, `SELECT title, published_on, summary, url FROM company_news WHERE organization_id = ? ORDER BY position`, orgID,
-			func(r *sql.Rows) error {
-				var n NewsItem
-				err := r.Scan(&n.Title, &n.PublishedOn, &n.Summary, &n.URL)
-				p.News = append(p.News, n)
-				return err
-			}); err != nil {
-			return d, err
-		}
-		if err := s.scanRows(ctx, `SELECT name, description FROM company_products WHERE organization_id = ? ORDER BY position`, orgID,
-			func(r *sql.Rows) error {
-				var x Product
-				err := r.Scan(&x.Name, &x.Description)
-				p.Products = append(p.Products, x)
-				return err
-			}); err != nil {
-			return d, err
-		}
-		if err := s.scanRows(ctx, `SELECT name, title FROM company_leaders WHERE organization_id = ? ORDER BY position`, orgID,
-			func(r *sql.Rows) error {
-				var x Leader
-				err := r.Scan(&x.Name, &x.Title)
-				p.Leaders = append(p.Leaders, x)
-				return err
-			}); err != nil {
-			return d, err
-		}
-		if err := s.scanRows(ctx, `SELECT source, score, scale, review_count, url, as_of FROM company_ratings WHERE organization_id = ? ORDER BY source DESC`, orgID,
-			func(r *sql.Rows) error {
-				var x Rating
-				var score sql.NullFloat64
-				var count sql.NullInt64
-				err := r.Scan(&x.Source, &score, &x.Scale, &count, &x.URL, &x.AsOf)
-				if score.Valid {
-					x.Score = &score.Float64
-				}
-				if count.Valid {
-					c := int(count.Int64)
-					x.ReviewCount = &c
-				}
-				p.Ratings = append(p.Ratings, x)
-				return err
-			}); err != nil {
-			return d, err
-		}
-		d.Profile = &p
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return d, err
-	}
-
-	var dg Diagnosis
-	var did int64
-	err = s.db.QueryRowContext(ctx, `SELECT id, summary, model, created_at FROM org_diagnoses WHERE organization_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`, orgID).
-		Scan(&did, &dg.Summary, &dg.Model, &created)
-	if err == nil {
-		dg.CreatedAt, _ = time.Parse(time.RFC3339, created)
-		dg.Causes, dg.Actions = []DiagnosisItem{}, []string{}
-		if err := s.scanRows(ctx, `SELECT kind, text, confidence FROM org_diagnosis_items WHERE diagnosis_id = ? ORDER BY kind, position`, did,
-			func(r *sql.Rows) error {
-				var kind, text, conf string
-				err := r.Scan(&kind, &text, &conf)
-				if kind == "cause" {
-					dg.Causes = append(dg.Causes, DiagnosisItem{Text: text, Confidence: conf})
-				} else {
-					dg.Actions = append(dg.Actions, text)
-				}
-				return err
-			}); err != nil {
-			return d, err
-		}
-		d.Diagnosis = &dg
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return d, err
 	}
 	return d, nil
 }

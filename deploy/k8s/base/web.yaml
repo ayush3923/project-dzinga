@@ -51,6 +51,7 @@ spec:
             - { name: AGENT_URL, value: "http://agent:8082" }
             - { name: QUIZ_API_URL, value: "http://quiz:8084" }
             - { name: ORGS_API_URL, value: "http://orgs:8085" }
+            - { name: STARTOFF_API_URL, value: "http://startoff:8086" }
             - name: DZ_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef: { name: dzinga-internal, key: internal-token }

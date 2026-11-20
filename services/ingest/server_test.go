@@ -29,8 +29,6 @@ type fakeCore struct {
 	states      map[int64][]map[string]any
 	events      int
 	maintenance int
-	quizzes     int
-	diagnoses   int
 	deleted     []string
 }
 
@@ -67,26 +65,6 @@ func (f *fakeCore) server(t *testing.T) *httptest.Server {
 		f.events += len(body.Events)
 		f.mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]int{"received": len(body.Events), "added": len(body.Events)})
-	})
-	mux.HandleFunc("POST /internal/v1/requests", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer "+tok {
-			w.WriteHeader(401)
-			return
-		}
-		f.mu.Lock()
-		f.quizzes++
-		f.mu.Unlock()
-		w.WriteHeader(202)
-	})
-	mux.HandleFunc("POST /internal/v1/diagnosis-requests", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer "+tok {
-			w.WriteHeader(401)
-			return
-		}
-		f.mu.Lock()
-		f.diagnoses++
-		f.mu.Unlock()
-		w.Write([]byte(`{"queued":[]}`))
 	})
 	mux.HandleFunc("POST /internal/v1/maintenance", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -135,7 +113,7 @@ func (f *fakeSource) Verify() error {
 func newTestSyncer(t *testing.T, core *fakeCore, failFor string) (*syncer, *httptest.Server, *[]time.Time) {
 	srv := core.server(t)
 	var sinces []time.Time
-	s := &syncer{core: srv.URL, quiz: srv.URL, orgs: srv.URL, token: tok, clientID: "c", secrets: &secrets.Memory{}, http: srv.Client(),
+	s := &syncer{core: srv.URL, token: tok, clientID: "c", secrets: &secrets.Memory{}, http: srv.Client(),
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)), connects: map[int64]msConnect{},
 		now: func() time.Time { return time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC) }}
 	s.newSource = func(m mailbox, secret string) source.Source {
@@ -207,8 +185,8 @@ func TestSyncRunsEnabledConnectedMailboxes(t *testing.T) {
 	if got["status"] != "error" || got["credential_saved"] != false {
 		t.Errorf("outlook state: %+v", got)
 	}
-	if core.events != 1 || core.maintenance != 1 || core.quizzes != 1 || core.diagnoses != 1 {
-		t.Errorf("events=%d maintenance=%d quiz requests=%d diagnosis requests=%d", core.events, core.maintenance, core.quizzes, core.diagnoses)
+	if core.events != 1 || core.maintenance != 1 {
+		t.Errorf("events=%d maintenance=%d", core.events, core.maintenance)
 	}
 }
 

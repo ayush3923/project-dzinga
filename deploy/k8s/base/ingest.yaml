@@ -48,8 +48,6 @@ spec:
           env:
             - { name: DZ_INGEST_ADDR, value: "0.0.0.0:8083" }
             - { name: DZ_AGENT_URL, value: "http://agent:8082" }
-            - { name: DZ_QUIZ_URL, value: "http://quiz:8084" }
-            - { name: DZ_ORGS_URL, value: "http://orgs:8085" }
             - name: DZ_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef: { name: dzinga-internal, key: internal-token }

@@ -187,7 +187,9 @@ export async function syncStatusAction(): Promise<SyncSummary> {
 export async function startSyncAction(ids: unknown): Promise<{ error?: string }> {
   const list = (Array.isArray(ids) ? ids : []).filter(validId).slice(0, 20);
   try {
-    await api.startSync(list);
+    // Every mailbox: the day's run (startoff), which also requests the quiz and queues diagnoses.
+    if (list.length === 0) await api.startRun();
+    else await api.startSync(list);
   } catch (e) {
     return { error: message(e, "Couldn’t start the sync.") };
   }

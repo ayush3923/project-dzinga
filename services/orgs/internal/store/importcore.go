@@ -8,9 +8,10 @@ import (
 	"strings"
 )
 
-// ImportFromCore copies everything core-api held about organizations (before its
-// migration v14 dropped those tables) into this service, keeping ids so links and
-// queued requests still point at the same organizations. It runs once, into an
+// ImportFromCore copies the organizations and preferred list core-api held (before
+// its migration v14 dropped those tables) into this service, keeping ids so links
+// still point at the same organizations. Company research from that era moved on
+// to the startoff service and isn't carried by this import (ADR 0011). It runs once, into an
 // empty database, and reads the source read-only (a backup file works).
 func (s *Store) ImportFromCore(ctx context.Context, corePath string) (int, error) {
 	var n int
@@ -46,16 +47,8 @@ func (s *Store) ImportFromCore(ctx context.Context, corePath string) (int, error
 	defer tx.Rollback()
 	// core-api's columns, which this service's tables start with (later migrations
 	// only add columns); parents before children.
-	tables := []string{"organizations", "org_settings", "org_preferences", "company_profiles", "company_news", "company_products",
-		"company_leaders", "company_ratings", "org_diagnoses", "org_diagnosis_items", "org_briefings", "org_briefing_news"}
+	tables := []string{"organizations", "org_settings", "org_preferences"}
 	for _, t := range tables {
-		ok, err := has(t)
-		if err != nil {
-			return 0, err
-		}
-		if !ok { // briefings arrived in core-api's v13
-			continue
-		}
 		var cols []string
 		rows, err := tx.QueryContext(ctx, `SELECT name FROM pragma_table_info(?, 'core') ORDER BY cid`, t)
 		if err != nil {
@@ -74,11 +67,6 @@ func (s *Store) ImportFromCore(ctx context.Context, corePath string) (int, error
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO main.%s (%s) SELECT %s FROM core.%s`, t, list, list, t)); err != nil {
 			return 0, fmt.Errorf("%s: %w", t, err)
 		}
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO main.research_requests (user_id, organization_id, status, created_at, done_at)
-		SELECT user_id, target_id, status, created_at, done_at FROM core.research_requests
-		WHERE kind = 'company_profile' AND target_id IN (SELECT id FROM main.organizations)`); err != nil {
-		return 0, fmt.Errorf("research_requests: %w", err)
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM main.organizations`).Scan(&n); err != nil {
 		return 0, err

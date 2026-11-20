@@ -37,7 +37,7 @@ export async function OrgDrawer({ id, closeHref }: { id: number; closeHref: stri
           <Link href={close} scroll={false} className={styles.close} aria-label="Close">✕</Link>
         </div>
 
-        {o.briefing && <BriefingSection b={o.briefing} unseen={unseen} />}
+        {o.briefing && <BriefingSection b={o.briefing} unseen={unseen} newsCount={o.news_count} />}
         {(unseen || o.diagnosis_unseen) && <MarkSeen id={o.id} />}
 
         {/* Lifetime view: every application to this organization */}
@@ -67,7 +67,7 @@ export async function OrgDrawer({ id, closeHref }: { id: number; closeHref: stri
           )}
         </section>
 
-        {/* Diagnosis, written by Claude in the app: five organizations at random each refresh, or on request */}
+        {/* Diagnosis, written by Claude in the app: the daily run keeps five queued at random, or on request. All are kept. */}
         {(o.diagnosis_suggested || o.diagnosis || o.diagnosis_requested_at || o.applications > 0) && (
           <section className={styles.section}>
             <h3>
@@ -96,10 +96,23 @@ export async function OrgDrawer({ id, closeHref }: { id: number; closeHref: stri
                   {shortDate(o.diagnosis.created_at)} · {o.diagnosis.model}.{" "}
                   <DiagnoseButton id={o.id} label="Ask again" requestedAt={o.diagnosis_requested_at} quiet />
                 </p>
+                {o.earlier_diagnoses.length > 0 && (
+                  <details className={styles.more}>
+                    <summary>Earlier diagnoses ({o.earlier_diagnoses.length})</summary>
+                    <ol className={styles.earlier}>
+                      {o.earlier_diagnoses.map((d) => (
+                        <li key={d.created_at}>
+                          <span className="faint">{shortDate(d.created_at)}</span>
+                          <span>{d.summary}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                )}
               </>
             ) : (
               <>
-                <p className="muted">Claude reads your history with {o.name} (timing, stages, fit scores, rejections, how many roles) and explains what&rsquo;s likely going on and what to do next. Each refresh diagnoses five organizations at random.</p>
+                <p className="muted">Claude reads your history with {o.name} (timing, stages, fit scores, rejections, how many roles) and explains what&rsquo;s likely going on and what to do next. Each morning&rsquo;s run keeps five organizations queued for a diagnosis, picked at random.</p>
                 <DiagnoseButton id={o.id} label="Diagnose" requestedAt={o.diagnosis_requested_at} />
               </>
             )}
@@ -167,7 +180,8 @@ export async function OrgDrawer({ id, closeHref }: { id: number; closeHref: stri
                 <ul className={styles.list}>{p.leaders.map((x, i) => <li key={i}><strong>{x.name}</strong> <span className="muted">{x.title}</span></li>)}</ul>
               </details>
               <p className="faint">
-                Researched {shortDate(p.created_at)} · {p.model}. Verify facts before relying on them.{" "}
+                Researched {shortDate(p.created_at)} · {p.model}
+                {o.profile_versions > 1 && <> · version {o.profile_versions}, earlier ones kept</>}. Verify facts before relying on them.{" "}
                 <ResearchButton kind="organizations" id={o.id} label="Refresh" requestedAt={o.research_requested_at} quiet />
               </p>
             </>
@@ -179,7 +193,7 @@ export async function OrgDrawer({ id, closeHref }: { id: number; closeHref: stri
 }
 
 /** Leaders, revenue and news Claude found for this company while building a daily quiz. */
-function BriefingSection({ b, unseen }: { b: Briefing; unseen: boolean }) {
+function BriefingSection({ b, unseen, newsCount }: { b: Briefing; unseen: boolean; newsCount: number }) {
   const facts: { label: string; value: string; detail?: string; url?: string }[] = [];
   if (b.ceo) facts.push({ label: "CEO", value: b.ceo, url: b.leaders_url || undefined });
   if (b.cpo) facts.push({ label: "Product head", value: b.cpo, url: b.leaders_url || undefined });
@@ -223,7 +237,10 @@ function BriefingSection({ b, unseen }: { b: Briefing; unseen: boolean }) {
           ))}
         </ul>
       )}
-      <p className="faint">Updated {shortDate(b.updated_at)} · {b.model}. Figures are as published; check the source before quoting them.</p>
+      <p className="faint">
+        Updated {shortDate(b.updated_at)} · {b.model}
+        {newsCount > b.news.length && <> · newest {b.news.length} of {newsCount} news items</>}. Figures are as published; check the source before quoting them.
+      </p>
     </section>
   );
 }

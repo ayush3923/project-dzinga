@@ -4,12 +4,10 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
-	mrand "math/rand/v2"
 	"net/http"
 	"strconv"
 	"time"
@@ -31,7 +29,6 @@ type Server struct {
 	InternalToken string // shared secret for service-to-service calls
 	UserID        string // single local user
 	Now           func() time.Time
-	Rand          *mrand.Rand // picks organizations to diagnose; nil = seeded per call
 }
 
 func (s *Server) Handler() http.Handler {
@@ -42,17 +39,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/organizations/lookup", s.lookup)
 	mux.HandleFunc("GET /api/v1/organizations/{id}", s.organization)
 	mux.HandleFunc("PUT /api/v1/organizations/preferred", s.putPreferred)
-	mux.HandleFunc("POST /api/v1/organizations/{id}/research", s.requestResearch)
-	mux.HandleFunc("POST /api/v1/organizations/{id}/diagnosis-request", s.requestDiagnosis)
-	mux.HandleFunc("POST /api/v1/organizations/{id}/seen", s.seen)
-	mux.HandleFunc("POST /api/v1/organizations/{id}/briefing/seen", s.seen) // older name
 	mux.HandleFunc("GET /api/v1/suggestions", s.suggestions)
 
-	mux.Handle("GET /internal/v1/research-requests", s.requireInternal(http.HandlerFunc(s.pendingResearch)))
-	mux.Handle("POST /internal/v1/diagnosis-requests", s.requireInternal(http.HandlerFunc(s.queueDiagnoses)))
-	mux.Handle("PUT /internal/v1/organizations/{id}/profile", s.requireInternal(http.HandlerFunc(s.putCompanyProfile)))
-	mux.Handle("POST /internal/v1/organizations/{id}/diagnosis", s.requireInternal(http.HandlerFunc(s.postDiagnosis)))
-	mux.Handle("PUT /internal/v1/organizations/{id}/briefing", s.requireInternal(http.HandlerFunc(s.putBriefing)))
 	return s.observe(securityHeaders(mux))
 }
 
@@ -87,18 +75,6 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Cache-Control", "no-store")
 		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (s *Server) requireInternal(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := r.Header.Get("Authorization")
-		want := "Bearer " + s.InternalToken
-		if s.InternalToken == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
-			writeErr(w, http.StatusUnauthorized, "unauthorized")
-			return
-		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -225,42 +201,6 @@ func (s *Server) putPreferred(w http.ResponseWriter, r *http.Request) {
 	s.organizations(w, r)
 }
 
-func (s *Server) requestResearch(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	at, err := s.Store.RequestResearch(r.Context(), s.UserID, store.KindProfile, id, s.Now())
-	s.writeResult(w, r, err, http.StatusAccepted, map[string]any{"research_requested_at": at})
-}
-
-func (s *Server) requestDiagnosis(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	at, err := s.Store.RequestResearch(r.Context(), s.UserID, store.KindDiagnosis, id, s.Now())
-	s.writeResult(w, r, err, http.StatusAccepted, map[string]any{"diagnosis_requested_at": at})
-}
-
-// queueDiagnoses runs after each refresh (the sync service calls it): a few
-// organizations at random get a diagnosis queued for Claude in the app.
-func (s *Server) queueDiagnoses(w http.ResponseWriter, r *http.Request) {
-	apps, ok := s.apps(w, r)
-	if !ok {
-		return
-	}
-	list, err := s.Store.QueueDiagnoses(r.Context(), s.UserID, apps, store.DiagnosesPerRefresh, s.Now(), s.Rand)
-	s.writeResult(w, r, err, http.StatusOK, map[string]any{"queued": list})
-}
-
-func (s *Server) pendingResearch(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Store.PendingResearch(r.Context(), s.UserID)
-	s.writeResult(w, r, err, http.StatusOK, map[string]any{"requests": list})
-}
-
 func (s *Server) suggestions(w http.ResponseWriter, r *http.Request) {
 	apps, ok := s.apps(w, r)
 	if !ok {
@@ -268,64 +208,4 @@ func (s *Server) suggestions(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := s.Store.Suggestions(r.Context(), s.UserID, apps, s.Now())
 	s.writeResult(w, r, err, http.StatusOK, map[string]any{"suggestions": list})
-}
-
-func (s *Server) putCompanyProfile(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	var p store.CompanyProfile
-	if !decode(w, r, &p) {
-		return
-	}
-	if err := p.Validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.writeResult(w, r, s.Store.SaveCompanyProfile(r.Context(), s.UserID, id, p, s.Now()), http.StatusNoContent, nil)
-}
-
-func (s *Server) postDiagnosis(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	var d store.Diagnosis
-	if !decode(w, r, &d) {
-		return
-	}
-	if err := d.Validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.writeResult(w, r, s.Store.SaveDiagnosis(r.Context(), s.UserID, id, d, s.Now()), http.StatusNoContent, nil)
-}
-
-func (s *Server) putBriefing(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	var b store.Briefing
-	if !decode(w, r, &b) {
-		return
-	}
-	if err := b.Validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.writeResult(w, r, s.Store.SaveBriefing(r.Context(), s.UserID, id, b, s.Now()), http.StatusNoContent, nil)
-}
-
-func (s *Server) seen(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	s.writeResult(w, r, s.Store.MarkSeen(r.Context(), s.UserID, id, s.Now()), http.StatusNoContent, nil)
 }

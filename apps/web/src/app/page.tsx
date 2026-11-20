@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { api, type Digest, type PrepQuestion, type Suggestion } from "@/lib/api";
+import { api, type DailyRun, type Digest, type PrepQuestion, type Suggestion } from "@/lib/api";
 import { STAGES, STAGE_META, brief, daysBetween, greeting, relativeDays, shortDate } from "@/lib/format";
 import { CompanyLogo, EmptyInbox, MailboxIcon, MailboxIcons, Offline, StageBadge } from "@/components/ui";
 import styles from "./today.module.css";
@@ -21,9 +21,10 @@ async function Today() {
   let digest: Digest | null = null;
   let prep: { day: string; items: PrepQuestion[] } | null = null;
   let suggested: Suggestion[] | null = null;
+  let runs: DailyRun[] | null = null;
   try {
-    [sum, digest, prep, suggested] = await Promise.all([api.summary(), api.digest().catch(() => null),
-      api.prep().catch(() => null), api.suggestions().catch(() => null)]);
+    [sum, digest, prep, suggested, runs] = await Promise.all([api.summary(), api.digest().catch(() => null),
+      api.prep().catch(() => null), api.suggestions().catch(() => null), api.runs(1).catch(() => null)]);
   } catch {
     return <Offline />;
   }
@@ -73,6 +74,7 @@ async function Today() {
           </section>
 
           {prep && prep.items.length > 0 && <PrepCard day={prep.day} items={prep.items} now={now} />}
+          {runs && runs[0] && <RunCard run={runs[0]} />}
 
           <div className={styles.grid}>
             <section className={`card ${styles.panel}`} aria-labelledby="nudge-h">
@@ -136,6 +138,37 @@ async function Today() {
         </>
       )}
     </div>
+  );
+}
+
+const STEP_LABEL: Record<string, string> = { refresh: "Mail refresh", quiz: "Daily quiz", diagnoses: "Diagnoses", interrupted: "Interrupted" };
+const TRIGGER_LABEL = { timer: "the 07:00 run", manual: "your refresh", claude: "Claude" } as const;
+
+/** What the latest daily run did: refresh, the quiz request, the diagnoses queued for Claude. */
+function RunCard({ run }: { run: DailyRun }) {
+  const at = new Date(run.started_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
+  return (
+    <section className={`card ${styles.panel}`} aria-labelledby="run-h">
+      <div className={styles.panelHead}>
+        <h2 id="run-h">Daily run</h2>
+        <span className="faint">
+          {shortDate(run.day)} · {at} · by {TRIGGER_LABEL[run.trigger]}
+          {run.status === "running" ? " · running…" : run.status === "partial" ? " · finished with problems" : ""}
+        </span>
+      </div>
+      <ul className={styles.runSteps}>
+        {run.steps.map((st) => (
+          <li key={st.name} data-status={st.status}>
+            <span className={styles.runMark} aria-hidden="true">{st.status === "done" ? "✓" : st.status === "failed" ? "!" : "–"}</span>
+            <span>
+              <strong>{STEP_LABEL[st.name] ?? st.name}</strong>
+              <span className="muted"> · {st.detail || st.status}</span>
+            </span>
+          </li>
+        ))}
+        {run.steps.length === 0 && <li className="faint">Starting…</li>}
+      </ul>
+    </section>
   );
 }
 

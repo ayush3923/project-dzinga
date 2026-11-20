@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -74,8 +73,6 @@ var imapServers = map[string]struct {
 type syncer struct {
 	core, token, clientID string
 	agent                 string // agent base URL; "" = don't ask for a digest
-	quiz                  string // quiz service base URL; "" = no quiz step
-	orgs                  string // organizations service base URL; "" = no diagnosis step
 	secrets               secrets.Store
 	log                   *slog.Logger
 	now                   func() time.Time
@@ -287,60 +284,11 @@ func (s *syncer) run(ids []int64, override *time.Time) {
 		s.update(func(st *runState) { st.Error = "maintenance: " + err.Error() })
 		return
 	}
-	// Ask the quiz service for today's quiz (Claude builds it on its next run). A
-	// failure here doesn't fail the refresh.
-	if s.quiz != "" {
-		s.requestQuiz(ctx)
-	}
-	// Ask the organizations service to queue diagnoses for a few companies at random.
-	if s.orgs != "" {
-		s.requestDiagnoses(ctx)
-	}
 	// The morning digest for this refresh: one short model call, in the background
 	// so the sync shows as done straight away. Without credit the template stays.
 	if s.agent != "" {
 		go s.requestDigest()
 	}
-}
-
-func (s *syncer) requestQuiz(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "POST", s.quiz+"/internal/v1/requests", nil)
-	req.Header.Set("Authorization", "Bearer "+s.token)
-	res, err := s.http.Do(req)
-	if err != nil {
-		s.log.Warn("quiz_request_failed", "err", err)
-		return
-	}
-	res.Body.Close()
-	if res.StatusCode != http.StatusAccepted {
-		s.log.Warn("quiz_request_failed", "status", res.StatusCode)
-		return
-	}
-	s.log.Info("quiz_requested")
-}
-
-func (s *syncer) requestDiagnoses(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "POST", s.orgs+"/internal/v1/diagnosis-requests", nil)
-	req.Header.Set("Authorization", "Bearer "+s.token)
-	res, err := s.http.Do(req)
-	if err != nil {
-		s.log.Warn("diagnosis_request_failed", "err", err)
-		return
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		s.log.Warn("diagnosis_request_failed", "status", res.StatusCode)
-		return
-	}
-	var body struct {
-		Queued []json.RawMessage `json:"queued"`
-	}
-	json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&body)
-	s.log.Info("diagnoses_requested", "queued", len(body.Queued))
 }
 
 func (s *syncer) requestDigest() {
@@ -584,14 +532,6 @@ func runServer(log *slog.Logger, core, clientID string) {
 	s.agent = os.Getenv("DZ_AGENT_URL")
 	if s.agent == "" {
 		s.agent = "http://127.0.0.1:8082"
-	}
-	s.quiz = os.Getenv("DZ_QUIZ_URL")
-	if s.quiz == "" {
-		s.quiz = "http://127.0.0.1:8084"
-	}
-	s.orgs = os.Getenv("DZ_ORGS_URL")
-	if s.orgs == "" {
-		s.orgs = "http://127.0.0.1:8085"
 	}
 	addr := os.Getenv("DZ_INGEST_ADDR")
 	if addr == "" {

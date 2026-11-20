@@ -1,7 +1,8 @@
 # Data model
 
-core-api owns applications and everything about them; the quiz service (ADR 0008) and the
-organizations service (ADR 0010) own their own tables, below. Every table carries `user_id`
+core-api owns applications and everything about them; the quiz service (ADR 0008), the
+organizations service (ADR 0010) and the startoff service (ADR 0011) own their own tables,
+below. Every table carries `user_id`
 (directly or through its parent), and every query filters on it.
 Local deployments use SQLite (`services/core-api/internal/store/migrate.go`). Production
 uses PostgreSQL with the same tables, plus row-level security on `user_id`.
@@ -43,13 +44,24 @@ of the name), read from core-api's analysis on each request.
 |---|---|---|---|
 | `organizations` | company (normalised name) | key, name | orgs, the first time an application to it is seen; user (preferred list) |
 | `org_settings` / `org_preferences` | preferred organizations | preferred_mode (auto = top 3, manual), ordered list | user |
-| `company_profiles` | researched company (1:1 with organization) | overview, interview_angle, model | Claude (scheduled run) or agent |
-| `company_news` / `company_products` / `company_leaders` | profile details | news ≤ 5 from the last 3 months with date and link; products; leaders | as above |
-| `company_ratings` | external rating | source (glassdoor = employees, gartner_peer_insights = customers), score (NULL = not found), review_count, url, as_of | as above |
-| `org_diagnoses` / `org_diagnosis_items` | diagnosis run | summary, causes with confidence, actions | agent (Sonnet 5) |
-| `org_briefings` | what the daily quiz found on a company (1:1) | ceo, cpo, revenue_year / _quarter (value as published, period, source url), leaders_url, updated_at, seen_at | Claude (scheduled run); seen_at by the user opening it |
-| `org_briefing_news` | dated news item on a company (10 newest kept) | day (quiz day), title, summary, source_title, url (unique), published_on | Claude |
-| `research_requests` | queued company profile (ADR 0007) | organization_id, status (pending, done) | web app; done when the profile is saved |
+
+Company research moved to the startoff service in the organizations service's v3.
+
+## Startoff service tables (`data/startoff.db`, ADR 0011)
+
+Research is kept with its history; the newest of each kind is what the organization drawer
+shows. `org_id` is the organizations service's id (no foreign key across services).
+
+| Table | One row per | Key columns | Written by |
+|---|---|---|---|
+| `companies` | organization with research | org_id, name, briefing_seen_at, diagnosis_seen_at | startoff on the first save or request; seen times by the user opening it |
+| `profiles` | company profile version (all kept) | overview, interview_angle, model, created_at | Claude (queue) |
+| `profile_products` / `profile_leaders` / `profile_ratings` | details of one version | products; leaders; source (glassdoor = employees, gartner_peer_insights = customers), score (NULL = not found), review_count, url, as_of | as above |
+| `facts` | change in the quiz's facts on a company | ceo, cpo, revenue_year / _quarter (value as published, period, source url), leaders_url, created_at | Claude (daily quiz); a row only when something changed |
+| `news` | company news item (all kept) | origin (profile: tied to a profile version; quiz: unique link per company), day, title, summary, source_title, url, published_on | Claude |
+| `diagnoses` / `diagnosis_items` | diagnosis (all kept) | summary, model; causes with confidence, actions | Claude (queue); agent when it runs |
+| `research_requests` | queued profile or diagnosis (ADR 0007) | org_id, kind (company_profile, diagnosis), status, run_id | the user, or the daily run (diagnoses); done when the result is saved |
+| `runs` / `run_steps` | daily run and its steps | day, trigger (timer, manual, claude), status (running, done, partial); step name, status, detail | startoff |
 
 ## Quiz service tables (`data/quiz.db`, ADR 0008)
 
@@ -58,7 +70,7 @@ of the name), read from core-api's analysis on each request.
 | `quizzes` | daily quiz (one per IST day) | day, model | Claude (scheduled run) |
 | `quiz_questions` | one of 7 questions per quiz | position, kind (mcq ×5, subjective, voice), topic (ai_news, pm_concept, org_news), prompt, options, answer, explanation, source_title, source_url | Claude |
 | `quiz_answers` | the user's answer to a question | choice, text, audio_file (name only; file in the service's audio folder), transcript, feedback, score (0–10) | user; Claude adds feedback |
-| `quiz_requests` | day whose quiz a refresh asked for | day, requested_at, done_at | sync service (refresh); done when the quiz is saved |
+| `quiz_requests` | day whose quiz a daily run asked for | day, requested_at, done_at | startoff (daily run); done when the quiz is saved |
 | `news_items` | key news item for a day (shown on the profile) | day, position, topic (ai_news, org_news), company, title, summary, source_title, url, published_on | Claude, with the daily quiz |
 | `prep_questions` | one of three bonus prep questions a day (Today page) | day, position, company, role, question, why, approach | Claude, with the daily quiz |
 

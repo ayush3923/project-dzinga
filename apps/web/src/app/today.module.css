@@ -173,3 +173,10 @@
 .prepQ::before { content: counter(prep) ". "; color: var(--ink-3); }
 .prep details summary { cursor: pointer; font-size: var(--text-sm); color: var(--ink-2); }
 .prep details p { margin-top: 6px !important; color: var(--ink-2); white-space: pre-wrap; }
+
+.runSteps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.runSteps li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; font-size: var(--text-md); }
+.runMark { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-size: 12px; font-weight: 700;
+  background: var(--surface-2); color: var(--ink-2); }
+.runSteps li[data-status="done"] .runMark { background: var(--accent-soft); color: var(--accent); }
+.runSteps li[data-status="failed"] .runMark { background: var(--accent); color: var(--surface); }
