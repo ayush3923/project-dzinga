@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 // ImportFromCore copies everything core-api held about organizations (before its
@@ -43,7 +44,8 @@ func (s *Store) ImportFromCore(ctx context.Context, corePath string) (int, error
 		return 0, err
 	}
 	defer tx.Rollback()
-	// Same columns on both sides; parents before children.
+	// core-api's columns, which this service's tables start with (later migrations
+	// only add columns); parents before children.
 	tables := []string{"organizations", "org_settings", "org_preferences", "company_profiles", "company_news", "company_products",
 		"company_leaders", "company_ratings", "org_diagnoses", "org_diagnosis_items", "org_briefings", "org_briefing_news"}
 	for _, t := range tables {
@@ -54,7 +56,22 @@ func (s *Store) ImportFromCore(ctx context.Context, corePath string) (int, error
 		if !ok { // briefings arrived in core-api's v13
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO main.%s SELECT * FROM core.%s`, t, t)); err != nil {
+		var cols []string
+		rows, err := tx.QueryContext(ctx, `SELECT name FROM pragma_table_info(?, 'core') ORDER BY cid`, t)
+		if err != nil {
+			return 0, err
+		}
+		for rows.Next() {
+			var c string
+			if err := rows.Scan(&c); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			cols = append(cols, `"`+c+`"`)
+		}
+		rows.Close()
+		list := strings.Join(cols, ", ")
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO main.%s (%s) SELECT %s FROM core.%s`, t, list, list, t)); err != nil {
 			return 0, fmt.Errorf("%s: %w", t, err)
 		}
 	}

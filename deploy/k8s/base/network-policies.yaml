@@ -75,7 +75,7 @@ spec:
     - from:
         - podSelector:
             matchExpressions:
-              - { key: app, operator: In, values: [web, agent] }
+              - { key: app, operator: In, values: [web, ingest, agent] }
       ports:
         - { protocol: TCP, port: 8085 }
   egress:
@@ -152,6 +152,11 @@ spec:
             matchLabels: { app: quiz }
       ports:
         - { protocol: TCP, port: 8084 }
+    - to:
+        - podSelector:
+            matchLabels: { app: orgs }
+      ports:
+        - { protocol: TCP, port: 8085 }
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

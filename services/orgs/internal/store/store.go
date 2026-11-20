@@ -146,6 +146,15 @@ CREATE TABLE research_requests (
 );
 CREATE UNIQUE INDEX research_requests_one_pending ON research_requests (user_id, organization_id) WHERE status = 'pending';
 `,
+	// v2: the queue also holds diagnoses (5 random organizations each refresh), and a
+	// new diagnosis is flagged on the list until the user opens it.
+	`
+ALTER TABLE research_requests ADD COLUMN kind TEXT NOT NULL DEFAULT 'company_profile' CHECK (kind IN ('company_profile', 'diagnosis'));
+DROP INDEX research_requests_one_pending;
+CREATE UNIQUE INDEX research_requests_one_pending ON research_requests (user_id, organization_id, kind) WHERE status = 'pending';
+ALTER TABLE org_diagnoses ADD COLUMN seen_at TEXT;
+UPDATE org_diagnoses SET seen_at = created_at; -- diagnoses from before this change aren't new
+`,
 }
 
 func Open(path string) (*Store, error) {

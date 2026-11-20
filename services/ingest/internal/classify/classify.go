@@ -87,7 +87,8 @@ var (
 	offer    = re(`pleased to (extend|offer)|offer letter|offer of employment|extend (you )?an offer|happy to offer|formal offer`)
 	rejected = re(`unfortunately|not (to )?(be )?mov(e|ing) forward|won'?t be moving forward|decided to (pursue|proceed|move forward) with other|` +
 		`move forward with other candidates|regret to inform|not been selected|were not selected|position has been filled|` +
-		`other candidates whose|not a match at this time|decided not to proceed|no longer under consideration|will not be progressing`)
+		`other candidates whose|not a match at this time|decided not to proceed|no longer under consideration|will not be progressing|` +
+		`(does|do) not (align|match) with (this|the) (particular )?(role|position)`)
 	interview = re(`invit\w* (you )?(to|for) (an? |the )?(\w+ )?interview|interview (invitation|invite|confirm\w*|schedul\w*|request)|` +
 		`schedule (an? |the |your )?(\w+ )?(interview|call|chat|conversation)|your (upcoming )?interview|phone screen|` +
 		`availability for (an? )?(interview|call)|calendly\.com|book a time|next round|technical round|hiring manager (round|call|interview)|` +

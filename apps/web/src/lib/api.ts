@@ -321,6 +321,8 @@ export interface OrgSummary {
   has_diagnosis: boolean;
   /** Something new from the daily quiz (news, leaders, revenue) not opened yet. */
   briefing_unseen: boolean;
+  /** A diagnosis written since the organization was last opened. */
+  diagnosis_unseen: boolean;
 }
 
 /** A company worth applying to now, from your own history (organizations service). */
@@ -363,6 +365,8 @@ export interface OrgDetail extends OrgSummary {
   application_history: AppAnalysis[];
   briefing: Briefing | null;
   research_requested_at: string | null;
+  /** When a diagnosis was queued for Claude (each refresh queues 5 at random). */
+  diagnosis_requested_at: string | null;
   profile: CompanyProfile | null;
   diagnosis: {
     summary: string;
@@ -513,7 +517,10 @@ export const api = {
   suggestions: () => orgsCall<{ suggestions: Suggestion[] }>("/api/v1/suggestions").then((r) => r.suggestions),
   requestResearch: (kind: "organizations" | "applications", id: number) =>
     (kind === "organizations" ? orgsCall : call)<{ research_requested_at: string }>(`/api/v1/${kind}/${id}/research`, { method: "POST" }),
-  briefingSeen: (id: number) => orgsCall<void>(`/api/v1/organizations/${id}/briefing/seen`, { method: "POST" }),
+  /** Opening an organization clears its flags (quiz briefing and new diagnosis). */
+  organizationSeen: (id: number) => orgsCall<void>(`/api/v1/organizations/${id}/seen`, { method: "POST" }),
+  requestDiagnosis: (id: number) =>
+    orgsCall<{ diagnosis_requested_at: string }>(`/api/v1/organizations/${id}/diagnosis-request`, { method: "POST" }),
   addInterviewNote: (id: number, note: { round: number; body: string }) =>
     call<InterviewNote>(`/api/v1/applications/${id}/interview-notes`, { method: "POST", body: JSON.stringify(note) }),
   prep: () => quizCall<{ day: string; items: PrepQuestion[] }>("/api/v1/prep"),
@@ -543,7 +550,6 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, "recording not found");
     return res;
   },
-  runDiagnosis: (id: number) => agentCall<unknown>(`/v1/organizations/${id}/diagnosis`),
   runFit: (id: number) => agentCall<unknown>(`/v1/applications/${id}/fit`),
   runOutreach: (id: number, contactId: number | null) =>
     agentCall<unknown>(`/v1/applications/${id}/outreach`, { contact_id: contactId }),

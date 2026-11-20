@@ -134,13 +134,17 @@ func (s *Store) SaveBriefing(ctx context.Context, userID string, orgID int64, b 
 	return tx.Commit()
 }
 
-// MarkBriefingSeen clears the organization's flag.
-func (s *Store) MarkBriefingSeen(ctx context.Context, userID string, orgID int64, now time.Time) error {
+// MarkSeen clears the organization's flags: what's new from the daily quiz and a
+// new diagnosis. Opening the organization counts as seeing both.
+func (s *Store) MarkSeen(ctx context.Context, userID string, orgID int64, now time.Time) error {
 	if err := ownsOrg(ctx, s.db, userID, orgID); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE org_briefings SET seen_at = ? WHERE organization_id = ? AND user_id = ?`,
-		now.UTC().Format(time.RFC3339), orgID, userID)
+	at := now.UTC().Format(time.RFC3339)
+	if _, err := s.db.ExecContext(ctx, `UPDATE org_briefings SET seen_at = ? WHERE organization_id = ? AND user_id = ?`, at, orgID, userID); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE org_diagnoses SET seen_at = ? WHERE organization_id = ? AND user_id = ? AND seen_at IS NULL`, at, orgID, userID)
 	return err
 }
 

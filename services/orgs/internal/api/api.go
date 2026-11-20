@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	mrand "math/rand/v2"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,6 +31,7 @@ type Server struct {
 	InternalToken string // shared secret for service-to-service calls
 	UserID        string // single local user
 	Now           func() time.Time
+	Rand          *mrand.Rand // picks organizations to diagnose; nil = seeded per call
 }
 
 func (s *Server) Handler() http.Handler {
@@ -41,10 +43,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/organizations/{id}", s.organization)
 	mux.HandleFunc("PUT /api/v1/organizations/preferred", s.putPreferred)
 	mux.HandleFunc("POST /api/v1/organizations/{id}/research", s.requestResearch)
-	mux.HandleFunc("POST /api/v1/organizations/{id}/briefing/seen", s.briefingSeen)
+	mux.HandleFunc("POST /api/v1/organizations/{id}/diagnosis-request", s.requestDiagnosis)
+	mux.HandleFunc("POST /api/v1/organizations/{id}/seen", s.seen)
+	mux.HandleFunc("POST /api/v1/organizations/{id}/briefing/seen", s.seen) // older name
 	mux.HandleFunc("GET /api/v1/suggestions", s.suggestions)
 
 	mux.Handle("GET /internal/v1/research-requests", s.requireInternal(http.HandlerFunc(s.pendingResearch)))
+	mux.Handle("POST /internal/v1/diagnosis-requests", s.requireInternal(http.HandlerFunc(s.queueDiagnoses)))
 	mux.Handle("PUT /internal/v1/organizations/{id}/profile", s.requireInternal(http.HandlerFunc(s.putCompanyProfile)))
 	mux.Handle("POST /internal/v1/organizations/{id}/diagnosis", s.requireInternal(http.HandlerFunc(s.postDiagnosis)))
 	mux.Handle("PUT /internal/v1/organizations/{id}/briefing", s.requireInternal(http.HandlerFunc(s.putBriefing)))
@@ -226,8 +231,29 @@ func (s *Server) requestResearch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	at, err := s.Store.RequestResearch(r.Context(), s.UserID, id, s.Now())
+	at, err := s.Store.RequestResearch(r.Context(), s.UserID, store.KindProfile, id, s.Now())
 	s.writeResult(w, r, err, http.StatusAccepted, map[string]any{"research_requested_at": at})
+}
+
+func (s *Server) requestDiagnosis(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	at, err := s.Store.RequestResearch(r.Context(), s.UserID, store.KindDiagnosis, id, s.Now())
+	s.writeResult(w, r, err, http.StatusAccepted, map[string]any{"diagnosis_requested_at": at})
+}
+
+// queueDiagnoses runs after each refresh (the sync service calls it): a few
+// organizations at random get a diagnosis queued for Claude in the app.
+func (s *Server) queueDiagnoses(w http.ResponseWriter, r *http.Request) {
+	apps, ok := s.apps(w, r)
+	if !ok {
+		return
+	}
+	list, err := s.Store.QueueDiagnoses(r.Context(), s.UserID, apps, store.DiagnosesPerRefresh, s.Now(), s.Rand)
+	s.writeResult(w, r, err, http.StatusOK, map[string]any{"queued": list})
 }
 
 func (s *Server) pendingResearch(w http.ResponseWriter, r *http.Request) {
@@ -295,11 +321,11 @@ func (s *Server) putBriefing(w http.ResponseWriter, r *http.Request) {
 	s.writeResult(w, r, s.Store.SaveBriefing(r.Context(), s.UserID, id, b, s.Now()), http.StatusNoContent, nil)
 }
 
-func (s *Server) briefingSeen(w http.ResponseWriter, r *http.Request) {
+func (s *Server) seen(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	s.writeResult(w, r, s.Store.MarkBriefingSeen(r.Context(), s.UserID, id, s.Now()), http.StatusNoContent, nil)
+	s.writeResult(w, r, s.Store.MarkSeen(r.Context(), s.UserID, id, s.Now()), http.StatusNoContent, nil)
 }

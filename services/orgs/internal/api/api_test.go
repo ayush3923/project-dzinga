@@ -306,3 +306,93 @@ func TestBriefingFlagsOrganizationUntilSeen(t *testing.T) {
 		t.Errorf("bob marked alice's briefing: %d", res.StatusCode)
 	}
 }
+
+func TestRefreshQueuesFiveRandomDiagnoses(t *testing.T) {
+	var apps []json.RawMessage
+	for i := int64(1); i <= 8; i++ {
+		apps = append(apps, app(i, "Company "+itoa(i), "PM", step{"applied", 20}))
+	}
+	ts, _ := newServer(t, &fakeCore{apps: apps})
+	queue := func() []store.ResearchRequest {
+		res := do(t, "POST", ts.URL+"/internal/v1/diagnosis-requests", "Bearer "+token, nil)
+		if res.StatusCode != 200 {
+			t.Fatalf("queue: %d", res.StatusCode)
+		}
+		return decodeBody[struct{ Queued []store.ResearchRequest }](t, res).Queued
+	}
+	first := queue()
+	if len(first) != store.DiagnosesPerRefresh {
+		t.Fatalf("queued %d, want %d", len(first), store.DiagnosesPerRefresh)
+	}
+	// Another refresh before Claude has worked the queue adds nothing.
+	if again := queue(); len(again) != 0 {
+		t.Fatalf("queue already full, but queued %+v", again)
+	}
+	pending := decodeBody[struct{ Requests []store.ResearchRequest }](t, do(t, "GET", ts.URL+"/internal/v1/research-requests", "Bearer "+token, nil))
+	if len(pending.Requests) != 5 {
+		t.Fatalf("pending: %d", len(pending.Requests))
+	}
+
+	// Saving a diagnosis completes its request and flags the organization until it is opened.
+	id := itoa(first[0].TargetID)
+	det := decodeBody[store.OrgDetail](t, do(t, "GET", ts.URL+"/api/v1/organizations/"+id, "", nil))
+	if det.DiagnosisRequestedAt == nil {
+		t.Error("detail doesn't show the queued diagnosis")
+	}
+	dg := store.Diagnosis{Summary: "Too early to tell.", Model: "claude-opus-5-5", Causes: []store.DiagnosisItem{}, Actions: []string{}}
+	if res := do(t, "POST", ts.URL+"/internal/v1/organizations/"+id+"/diagnosis", "Bearer "+token, dg); res.StatusCode != 204 {
+		t.Fatalf("diagnosis: %d", res.StatusCode)
+	}
+	flag := func() bool {
+		rep := decodeBody[store.OrgsReport](t, do(t, "GET", ts.URL+"/api/v1/organizations", "", nil))
+		for _, o := range rep.Organizations {
+			if itoa(o.ID) == id {
+				return o.DiagnosisUnseen && o.HasDiagnosis
+			}
+		}
+		return false
+	}
+	if !flag() {
+		t.Error("new diagnosis not flagged")
+	}
+	if res := do(t, "POST", ts.URL+"/api/v1/organizations/"+id+"/seen", "", nil); res.StatusCode != 204 {
+		t.Fatalf("seen: %d", res.StatusCode)
+	}
+	if flag() {
+		t.Error("still flagged after opening")
+	}
+	pending = decodeBody[struct{ Requests []store.ResearchRequest }](t, do(t, "GET", ts.URL+"/internal/v1/research-requests", "Bearer "+token, nil))
+	if len(pending.Requests) != 4 {
+		t.Errorf("diagnosis request not completed: %d pending", len(pending.Requests))
+	}
+	// The next refresh tops up by one, from organizations not queued or freshly diagnosed.
+	next := queue()
+	if len(next) != 1 {
+		t.Fatalf("top-up queued %d, want 1", len(next))
+	}
+	for _, r := range first {
+		if r.TargetID == next[0].TargetID {
+			t.Errorf("picked an organization already queued or just diagnosed: %+v", next[0])
+		}
+	}
+	if res := do(t, "POST", ts.URL+"/internal/v1/diagnosis-requests", "", nil); res.StatusCode != 401 {
+		t.Errorf("queue without token: %d", res.StatusCode)
+	}
+}
+
+func TestUserCanAskForADiagnosis(t *testing.T) {
+	ts, _ := newServer(t, &fakeCore{apps: []json.RawMessage{app(1, "Acme", "PM", step{"applied", 3})}})
+	rep := decodeBody[store.OrgsReport](t, do(t, "GET", ts.URL+"/api/v1/organizations", "", nil))
+	id := itoa(rep.Organizations[0].ID)
+	if res := do(t, "POST", ts.URL+"/api/v1/organizations/"+id+"/diagnosis-request", "", nil); res.StatusCode != 202 {
+		t.Fatalf("request: %d", res.StatusCode)
+	}
+	// Alongside a profile request for the same organization.
+	if res := do(t, "POST", ts.URL+"/api/v1/organizations/"+id+"/research", "", nil); res.StatusCode != 202 {
+		t.Fatalf("research: %d", res.StatusCode)
+	}
+	pending := decodeBody[struct{ Requests []store.ResearchRequest }](t, do(t, "GET", ts.URL+"/internal/v1/research-requests", "Bearer "+token, nil))
+	if len(pending.Requests) != 2 || pending.Requests[0].Kind != store.KindDiagnosis || pending.Requests[1].Kind != store.KindProfile {
+		t.Errorf("pending: %+v", pending.Requests)
+	}
+}

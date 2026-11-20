@@ -16,7 +16,7 @@ paths:
       summary: Liveness
   /api/v1/organizations:
     get:
-      summary: Every organization with applications or on the preferred list (statistics, diagnosis hint, briefing_unseen), and the preferred list
+      summary: Every organization with applications or on the preferred list (statistics, diagnosis hint, has_diagnosis, briefing_unseen, diagnosis_unseen), and the preferred list
   /api/v1/organizations/lookup:
     get:
       summary: An organization's id from a company name (?company=; matched by key, so case and punctuation don't matter)
@@ -25,7 +25,7 @@ paths:
         "404": { description: No organization for that company }
   /api/v1/organizations/{id}:
     get:
-      summary: One organization - statistics, application_history (core-api's analysis rows, newest first), profile, diagnosis, briefing, research_requested_at
+      summary: One organization - statistics, application_history (core-api's analysis rows, newest first), profile, diagnosis, briefing, research_requested_at, diagnosis_requested_at
   /api/v1/organizations/preferred:
     put:
       summary: Replace the preferred list ({names, auto}); returns the report
@@ -34,15 +34,28 @@ paths:
       summary: Queue a company profile for Claude's next run
       responses:
         "202": { description: Queued; returns research_requested_at }
+  /api/v1/organizations/{id}/diagnosis-request:
+    post:
+      summary: Queue a diagnosis for Claude's next run
+      responses:
+        "202": { description: Queued; returns diagnosis_requested_at }
+  /api/v1/organizations/{id}/seen:
+    post:
+      summary: Clear the organization's flags - new from the daily quiz, and a new diagnosis (the drawer was opened)
   /api/v1/organizations/{id}/briefing/seen:
     post:
-      summary: Clear the organization's "something new" flag (the drawer was opened)
+      summary: Older name for /seen
+      deprecated: true
   /api/v1/suggestions:
     get:
       summary: Up to 3 companies worth applying to now (preferred with nothing open, shortlisted before, replies fast)
   /internal/v1/research-requests:
     get:
-      summary: Pending company profiles, oldest first (kind company_profile)
+      summary: Pending requests, oldest first - kind company_profile or diagnosis
+      security: [{ internalToken: [] }]
+  /internal/v1/diagnosis-requests:
+    post:
+      summary: Run after each refresh (by the sync service) - tops the queue up to 5 pending diagnoses, picking organizations at random (with applications, none queued, and no diagnosis or one out of date - activity since, or 14 days old); returns queued
       security: [{ internalToken: [] }]
   /internal/v1/organizations/{id}/profile:
     put:
@@ -50,7 +63,7 @@ paths:
       security: [{ internalToken: [] }]
   /internal/v1/organizations/{id}/diagnosis:
     post:
-      summary: Save a diagnosis (summary, causes with confidence, actions)
+      summary: Save a diagnosis (summary, causes with confidence, actions); completes a queued diagnosis and flags the organization until opened
       security: [{ internalToken: [] }]
   /internal/v1/organizations/{id}/briefing:
     put:
